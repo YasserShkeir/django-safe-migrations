@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-01-16
+
+### Added
+
+- Support for Django 6.0 in metadata and testing matrix.
+
+### Fixed
+
+- **Compatibility**: Fixed `CheckConstraint` usage for Django 5.1+ (dynamically using `condition` instead of `check`).
+
 ## [0.1.0] - 2026-01-15
 
 ### Added
@@ -39,5 +49,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented detailed security documentation regarding `EXTRA_RULES` and dynamic code loading.
 - Established security reporting policy.
 
-[Unreleased]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/YasserShkeir/django-safe-migrations/releases/tag/v0.1.0

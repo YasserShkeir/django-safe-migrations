@@ -4,7 +4,7 @@
 [![CI](https://github.com/YasserShkeir/django-safe-migrations/actions/workflows/ci.yml/badge.svg)](https://github.com/YasserShkeir/django-safe-migrations/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/YasserShkeir/django-safe-migrations/branch/main/graph/badge.svg)](https://codecov.io/gh/YasserShkeir/django-safe-migrations)
 [![Python Versions](https://img.shields.io/pypi/pyversions/django-safe-migrations.svg)](https://pypi.org/project/django-safe-migrations/)
-[![Django Versions](https://img.shields.io/badge/django-3.2%20%7C%204.2%20%7C%205.0%20%7C%205.1-blue.svg)](https://www.djangoproject.com/)
+[![Django Versions](https://img.shields.io/badge/django-3.2%20%7C%204.2%20%7C%205.0%20%7C%205.1%20%7C%206.0-blue.svg)](https://www.djangoproject.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Detect unsafe Django migrations before they break production.**
