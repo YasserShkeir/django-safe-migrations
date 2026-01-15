@@ -1,0 +1,24 @@
+ARG PYTHON_VERSION=3.11
+FROM python:${PYTHON_VERSION}-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    default-libmysqlclient-dev \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy all source code first
+COPY . .
+
+# Install Python dependencies including the package itself and database drivers
+RUN pip install --no-cache-dir -e ".[dev,postgres,mysql]"
+
+# Set PYTHONPATH to include the app directory
+ENV PYTHONPATH=/app
+
+# Run tests by default
+CMD ["pytest", "-v"]

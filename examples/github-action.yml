@@ -1,0 +1,35 @@
+# Example GitHub Action for checking migrations
+# Copy this to .github/workflows/check-migrations.yml in your project
+
+name: Check Migrations
+
+on:
+  pull_request:
+    paths:
+      - "**/migrations/**"
+      - "**/models.py"
+
+jobs:
+  check-migrations:
+    name: Check Migration Safety
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install django-safe-migrations
+          # Install your project dependencies
+          pip install -r requirements.txt
+
+      - name: Check migrations
+        run: |
+          python manage.py check_migrations --format=github --fail-on-warning

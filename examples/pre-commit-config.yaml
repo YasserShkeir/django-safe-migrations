@@ -1,0 +1,17 @@
+# Example pre-commit configuration for checking migrations
+# Add this hook to your .pre-commit-config.yaml
+
+repos:
+  # Your other hooks...
+
+  - repo: local
+    hooks:
+      - id: check-migrations
+        name: Check Django migrations
+        description: Check for unsafe migration operations
+        entry: python manage.py check_migrations --new-only --no-suggestions
+        language: system
+        types: [python]
+        pass_filenames: false
+        # Only run when migration files change
+        files: migrations/.*\.py$

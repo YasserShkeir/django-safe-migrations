@@ -1,0 +1,140 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "django-safe-migrations"
+version = "0.1.0"
+description = "Detect unsafe Django migrations before they break production"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+keywords = ["django", "migrations", "database", "postgres", "zero-downtime", "linter"]
+authors = [
+    {name = "Yasser Shkeir", email = "shkeiryasser@gmail.com"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: Django",
+    "Framework :: Django :: 3.2",
+    "Framework :: Django :: 4.2",
+    "Framework :: Django :: 5.0",
+    "Framework :: Django :: 5.1",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Database",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+    "Django>=3.2",
+]
+
+[project.optional-dependencies]
+postgres = [
+    "psycopg2-binary>=2.9",
+]
+mysql = [
+    "mysqlclient>=2.1",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-django>=4.5",
+    "pytest-cov>=4.0",
+    "pytest-xdist>=3.0",
+    "black>=22.0",
+    "flake8>=5.0",
+    "flake8-docstrings>=1.7",
+    "isort>=5.0",
+    "mypy>=1.0",
+    "pre-commit>=2.20",
+    "django-stubs>=4.0",
+    "bandit>=1.7",
+    "build>=0.8",
+    "twine>=4.0",
+]
+docs = [
+    "mkdocs>=1.4",
+    "mkdocs-material>=9.0",
+    "mkdocstrings[python]>=0.20",
+]
+
+[project.urls]
+Homepage = "https://github.com/YasserShkeir/django-safe-migrations"
+Documentation = "https://django-safe-migrations.readthedocs.io/"
+Repository = "https://github.com/YasserShkeir/django-safe-migrations"
+Changelog = "https://github.com/YasserShkeir/django-safe-migrations/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["django_safe_migrations"]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "tests.test_project.settings"
+python_files = "test_*.py"
+addopts = "-ra -q"
+testpaths = ["tests"]
+markers = [
+    "postgres: mark test as requiring PostgreSQL",
+    "mysql: mark test as requiring MySQL/MariaDB",
+    "slow: mark test as slow running",
+]
+
+[tool.black]
+line-length = 88
+target-version = ["py39", "py310", "py311", "py312"]
+exclude = '''
+/(
+    \.git
+    | \.hg
+    | \.mypy_cache
+    | \.tox
+    | \.venv
+    | _build
+    | buck-out
+    | build
+    | dist
+    | migrations
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 88
+skip = ["migrations", ".venv", ".tox"]
+
+[tool.mypy]
+python_version = "3.9"
+plugins = ["mypy_django_plugin.main"]
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+exclude = ["migrations", "tests"]
+
+[[tool.mypy.overrides]]
+module = "django.*"
+ignore_missing_imports = true
+
+[tool.django-stubs]
+django_settings_module = "tests.test_project.settings"
+
+[tool.bandit]
+exclude_dirs = ["tests", ".tox", ".venv"]
+skips = ["B101"]  # Allow assert in tests
+
+[tool.coverage.run]
+source = ["django_safe_migrations"]
+branch = true
+omit = ["*/migrations/*", "*/tests/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
