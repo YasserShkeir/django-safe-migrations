@@ -144,3 +144,4 @@ coverage/
 # Build artifacts
 *.tar.gz
 *.whl
+.env
