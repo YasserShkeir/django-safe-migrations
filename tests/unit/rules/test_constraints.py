@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import django
 import pytest
 from django.db import migrations, models
 
@@ -12,6 +13,14 @@ from django_safe_migrations.rules.constraints import (
     AddUniqueConstraintRule,
     AlterUniqueTogetherRule,
 )
+
+
+def get_check_constraint(**kwargs):
+    """Create a CheckConstraint compatible with Django version."""
+    if django.VERSION >= (5, 1):
+        if "check" in kwargs:
+            kwargs["condition"] = kwargs.pop("check")
+    return models.CheckConstraint(**kwargs)
 
 
 class TestAddUniqueConstraintRule:
@@ -55,8 +64,8 @@ class TestAddUniqueConstraintRule:
         """Test that check constraints are ignored."""
         operation = migrations.AddConstraint(
             model_name="order",
-            constraint=models.CheckConstraint(
-                condition=models.Q(amount__gte=0),
+            constraint=get_check_constraint(
+                check=models.Q(amount__gte=0),
                 name="positive_amount",
             ),
         )
@@ -189,8 +198,8 @@ class TestAddCheckConstraintRule:
         """Test that adding a check constraint is detected."""
         operation = migrations.AddConstraint(
             model_name="order",
-            constraint=models.CheckConstraint(
-                condition=models.Q(amount__gte=0),
+            constraint=get_check_constraint(
+                check=models.Q(amount__gte=0),
                 name="positive_amount",
             ),
         )
@@ -236,8 +245,8 @@ class TestAddCheckConstraintRule:
         """Test that suggestion mentions NOT VALID."""
         operation = migrations.AddConstraint(
             model_name="order",
-            constraint=models.CheckConstraint(
-                condition=models.Q(amount__gte=0),
+            constraint=get_check_constraint(
+                check=models.Q(amount__gte=0),
                 name="positive_amount",
             ),
         )

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "django-safe-migrations"
-version = "0.1.0"
+version = "0.1.1"
 description = "Detect unsafe Django migrations before they break production"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -20,6 +20,7 @@ classifiers = [
     "Framework :: Django :: 4.2",
     "Framework :: Django :: 5.0",
     "Framework :: Django :: 5.1",
+    "Framework :: Django :: 6.0",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
@@ -113,7 +114,7 @@ plugins = ["mypy_django_plugin.main"]
 strict = true
 warn_return_any = true
 warn_unused_configs = true
-exclude = ["migrations", "tests"]
+exclude = ["tests/", ".*?/migrations/"]
 
 [[tool.mypy.overrides]]
 module = "django.*"

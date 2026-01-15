@@ -319,6 +319,7 @@ class TestGetAppMigrations:
 
 # Skip get_unapplied_migrations tests as they require database access
 # and are covered by integration tests
+@pytest.mark.skip(reason="Covered by integration tests")
 class TestGetUnappliedMigrations:
     """Tests for get_unapplied_migrations function.
 
