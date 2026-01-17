@@ -1,6 +1,7 @@
 # Django Safe Migrations
 
 [![PyPI version](https://badge.fury.io/py/django-safe-migrations.svg)](https://badge.fury.io/py/django-safe-migrations)
+[![Downloads](https://static.pepy.tech/badge/django-safe-migrations/month)](https://pepy.tech/project/django-safe-migrations)
 [![CI](https://github.com/YasserShkeir/django-safe-migrations/actions/workflows/ci.yml/badge.svg)](https://github.com/YasserShkeir/django-safe-migrations/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/YasserShkeir/django-safe-migrations/branch/main/graph/badge.svg)](https://codecov.io/gh/YasserShkeir/django-safe-migrations)
 [![Python Versions](https://img.shields.io/pypi/pyversions/django-safe-migrations.svg)](https://pypi.org/project/django-safe-migrations/)
@@ -286,7 +287,13 @@ make lint
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## 🙏 Acknowledgments
+## � Support
+
+If this project helps you ship safer migrations, consider supporting its development:
+
+[![Sponsor](https://img.shields.io/badge/Sponsor-❤-red.svg)](https://www.yasser-shkeir.com/donate)
+
+## �🙏 Acknowledgments
 
 Inspired by:
 
