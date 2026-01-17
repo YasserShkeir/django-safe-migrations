@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-01-17
+
+### Added
+
+- Downloads badge in README (monthly stats from pepy.tech).
+- Support section with sponsor link.
+- GitHub FUNDING.yml for sponsor button.
+
+### Changed
+
+- Updated GitHub Actions: checkout v6, codeql-action v4, action-gh-release v2.
+- Removed labels from dependabot.yml (labels did not exist in repo).
+
 ## [0.1.1] - 2026-01-16
 
 ### Added
@@ -49,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented detailed security documentation regarding `EXTRA_RULES` and dynamic code loading.
 - Established security reporting policy.
 
-[Unreleased]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/YasserShkeir/django-safe-migrations/releases/tag/v0.1.0
