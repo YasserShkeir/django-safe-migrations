@@ -5,7 +5,7 @@
 [![CI](https://github.com/YasserShkeir/django-safe-migrations/actions/workflows/ci.yml/badge.svg)](https://github.com/YasserShkeir/django-safe-migrations/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/YasserShkeir/django-safe-migrations/branch/main/graph/badge.svg)](https://codecov.io/gh/YasserShkeir/django-safe-migrations)
 [![Python Versions](https://img.shields.io/pypi/pyversions/django-safe-migrations.svg)](https://pypi.org/project/django-safe-migrations/)
-[![Django Versions](https://img.shields.io/badge/django-3.2%20%7C%204.2%20%7C%205.0%20%7C%205.1%20%7C%206.0-blue.svg)](https://www.djangoproject.com/)
+[![Django Versions](https://img.shields.io/badge/django-3.2%20%7C%204.2%20%7C%205.0%20%7C%205.1%20%7C%206.0-blue.svg)](https://django-safe-migrations.readthedocs.io/en/latest/django-compatibility/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **Detect unsafe Django migrations before they break production.**
@@ -14,11 +14,11 @@ Django Safe Migrations analyzes your Django migrations and warns you about opera
 
 ## Features
 
-- **Detect unsafe operations** before they reach production
+- **Detect unsafe operations** before they reach production ([see what we catch](https://django-safe-migrations.readthedocs.io/en/latest/detected-patterns/))
 - **PostgreSQL-aware** rules for concurrent index creation and more
 - **Clear fix suggestions** with safe migration patterns
-- **Multiple output formats**: Console (with colors), JSON, GitHub Actions annotations
-- **Easy CI/CD integration** with GitHub Actions and pre-commit hooks
+- **Multiple output formats**: Console (with colors), JSON, GitHub Actions annotations, SARIF
+- **Easy CI/CD integration** with GitHub Actions, pre-commit hooks, and GitHub Code Scanning
 - **Configurable rules** to match your deployment strategy
 
 ## Rules
@@ -166,14 +166,15 @@ repos:
 
 ### Command Options
 
-| Option                  | Description                                |
-| ----------------------- | ------------------------------------------ |
-| `--format`              | Output format: `console`, `json`, `github` |
-| `--fail-on-warning`     | Exit with error code on warnings           |
-| `--new-only`            | Only check unapplied migrations            |
-| `--no-suggestions`      | Hide fix suggestions                       |
-| `--exclude-apps`        | Apps to exclude from checking              |
-| `--include-django-apps` | Include Django's built-in apps             |
+| Option                  | Description                                         |
+| ----------------------- | --------------------------------------------------- |
+| `--format`              | Output format: `console`, `json`, `github`, `sarif` |
+| `--output`, `-o`        | Output file path (defaults to stdout)               |
+| `--fail-on-warning`     | Exit with error code on warnings                    |
+| `--new-only`            | Only check unapplied migrations                     |
+| `--no-suggestions`      | Hide fix suggestions                                |
+| `--exclude-apps`        | Apps to exclude from checking                       |
+| `--include-django-apps` | Include Django's built-in apps                      |
 
 ### Programmatic Usage
 
@@ -287,13 +288,13 @@ make lint
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## � Support
+## 💖 Support
 
 If this project helps you ship safer migrations, consider supporting its development:
 
-[![Sponsor](https://img.shields.io/badge/Sponsor-❤-red.svg)](https://www.yasser-shkeir.com/donate)
+[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-red.svg)](https://www.yasser-shkeir.com/donate)
 
-## �🙏 Acknowledgments
+## 🙏 Acknowledgments
 
 Inspired by:
 

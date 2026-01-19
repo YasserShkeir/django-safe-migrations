@@ -70,6 +70,10 @@ Homepage = "https://github.com/YasserShkeir/django-safe-migrations"
 Documentation = "https://django-safe-migrations.readthedocs.io/"
 Repository = "https://github.com/YasserShkeir/django-safe-migrations"
 Changelog = "https://github.com/YasserShkeir/django-safe-migrations/blob/main/CHANGELOG.md"
+Funding = "https://www.yasser-shkeir.com/donate"
+
+[project.scripts]
+check-migrations = "django_safe_migrations.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["django_safe_migrations"]

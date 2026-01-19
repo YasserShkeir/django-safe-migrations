@@ -11,6 +11,10 @@ from django_safe_migrations.conf import (
 )
 from django_safe_migrations.rules import get_all_rules
 from django_safe_migrations.rules.base import BaseRule, Issue
+from django_safe_migrations.suppression import (
+    get_suppressions_for_migration,
+    is_operation_suppressed,
+)
 from django_safe_migrations.utils import (
     get_db_vendor,
     get_migration_file_path,
@@ -103,7 +107,13 @@ class MigrationAnalyzer:
 
         operations = getattr(migration, "operations", [])
 
+        # Pre-parse suppression comments for efficiency
+        suppressions = get_suppressions_for_migration(migration)
+
         for idx, operation in enumerate(operations):
+            # Get operation line number for suppression checking
+            operation_line = get_operation_line_number(migration, idx)
+
             for rule in self.rules:
                 # Skip disabled rules
                 if self._is_rule_disabled(rule.rule_id):
@@ -112,6 +122,13 @@ class MigrationAnalyzer:
                 # Skip rules that don't apply to this database
                 if not rule.applies_to_db(self.db_vendor):
                     continue
+
+                # Check for inline suppression comments
+                if file_path and operation_line:
+                    if is_operation_suppressed(
+                        file_path, operation_line, rule.rule_id, suppressions
+                    ):
+                        continue
 
                 issue = rule.check(
                     operation=operation,
@@ -127,7 +144,7 @@ class MigrationAnalyzer:
                     if issue.file_path is None:
                         issue.file_path = file_path
                     if issue.line_number is None:
-                        issue.line_number = get_operation_line_number(migration, idx)
+                        issue.line_number = operation_line
                     if issue.app_label is None:
                         issue.app_label = app_label
                     if issue.migration_name is None:

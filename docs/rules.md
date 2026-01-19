@@ -10,7 +10,7 @@ Django Safe Migrations includes rules to detect common unsafe migration patterns
 | **WARNING** | May cause issues depending on your deployment strategy     |
 | **INFO**    | Best practice recommendation                               |
 
----
+______________________________________________________________________
 
 ## SM001: NOT NULL Without Default
 
@@ -72,7 +72,7 @@ migrations.AlterField(
 )
 ```
 
----
+______________________________________________________________________
 
 ## SM002: Unsafe Column Drop
 
@@ -108,7 +108,7 @@ Use the **expand/contract** pattern:
 2. **Release 2:** Deploy, verify no queries reference the column
 3. **Release 3:** Drop the column
 
----
+______________________________________________________________________
 
 ## SM003: Unsafe Table Drop
 
@@ -139,7 +139,7 @@ Same as SM002, but for entire tables. Also:
 3. Deploy and verify no queries reference the table
 4. Drop the table in a later release
 
----
+______________________________________________________________________
 
 ## SM010: Non-Concurrent Index Creation
 
@@ -186,9 +186,10 @@ class Migration(migrations.Migration):
 ```
 
 !!! note
+
 `atomic = False` is required because `CREATE INDEX CONCURRENTLY` cannot run inside a transaction.
 
----
+______________________________________________________________________
 
 ## SM011: Non-Concurrent Unique Constraint
 
@@ -250,7 +251,7 @@ migrations.RunSQL(
 )
 ```
 
----
+______________________________________________________________________
 
 ## SM004: Alter Column Type
 
@@ -307,7 +308,7 @@ migrations.RunPython(copy_data, migrations.RunPython.noop)
 # Migration 4: Drop old column
 ```
 
----
+______________________________________________________________________
 
 ## SM005: Foreign Key Validates Existing Rows
 
@@ -373,7 +374,7 @@ migrations.RunSQL(
 )
 ```
 
----
+______________________________________________________________________
 
 ## SM006: Rename Column
 
@@ -427,7 +428,7 @@ migrations.RunPython(copy_data, migrations.RunPython.noop)
 # Migration 3: Make NOT NULL, drop old column
 ```
 
----
+______________________________________________________________________
 
 ## SM007: RunSQL Without Reverse
 
@@ -471,7 +472,7 @@ migrations.RunSQL(
 )
 ```
 
----
+______________________________________________________________________
 
 ## SM008: Large Data Migration
 
@@ -529,7 +530,7 @@ def update_all_users_bulk(apps, schema_editor):
         User.objects.bulk_update(batch, ['name'])
 ```
 
----
+______________________________________________________________________
 
 ## SM012: Enum Add Value in Transaction
 
@@ -573,9 +574,10 @@ class Migration(migrations.Migration):
 ```
 
 !!! note
+
 Enum value additions cannot be easily reversed. Consider if you really need an enum, or if a regular VARCHAR would work better.
 
----
+______________________________________________________________________
 
 ## SM013: Alter VARCHAR Length
 
@@ -624,7 +626,7 @@ migrations.RunSQL(
 # during a maintenance window if needed
 ```
 
----
+______________________________________________________________________
 
 ## SM009: Adding Unique Constraint
 
@@ -687,7 +689,7 @@ migrations.AddConstraint(
 )
 ```
 
----
+______________________________________________________________________
 
 ## SM014: Rename Model
 
@@ -735,7 +737,7 @@ Or use the expand/contract pattern:
 3. Update all foreign keys and references
 4. Remove the old model in a later release
 
----
+______________________________________________________________________
 
 ## SM015: Alter Unique Together (Deprecated)
 
@@ -782,7 +784,7 @@ migrations.AddConstraint(
 - Partial indexes
 - Better introspection support
 
----
+______________________________________________________________________
 
 ## SM016: RunPython Without Reverse
 
@@ -832,7 +834,7 @@ migrations.RunPython(
 )
 ```
 
----
+______________________________________________________________________
 
 ## SM017: Adding Check Constraint
 

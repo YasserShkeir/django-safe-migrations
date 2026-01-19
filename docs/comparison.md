@@ -6,18 +6,18 @@ There are several tools available for ensuring Django migration safety. Each too
 
 ## Feature Comparison Matrix
 
-| Feature                 | django-safe-migrations                         | django-migration-linter                 | django-strong-migrations                  |
-| :---------------------- | :--------------------------------------------- | :-------------------------------------- | :---------------------------------------- |
-| **Primary Focus**       | **Database Locking** & Operational Safety      | Backward Compatibility (Code vs Schema) | Database Locking & Zero Downtime          |
-| **Analysis Method**     | **Static Analysis** (inspects code)            | Static Analysis (inspects code)         | **Runtime Inspection** (during `migrate`) |
-| **Database Connection** | **Optional** (Checks run offline)              | Optional / Not Required                 | **Required** (checks live DB state)       |
-| **CI/CD Friendly**      | **Native** (GitHub Actions, JSON, Pre-commit)  | Native                                  | Requires DB container/connection          |
-| **Granularity**         | Operation & Line-level                         | Migration-level                         | Operation-level                           |
-| **PostgreSQL Support**  | **Deep** (Concurrent indexes, constraints)     | Basic                                   | Deep                                      |
-| **MySQL Support**       | Basic                                          | Good                                    | PostgreSQL focused                        |
-| **Remediation**         | **Code Suggestions** implementation guides     | Error messages                          | Safe pattern helpers                      |
+| Feature                 | django-safe-migrations                        | django-migration-linter                 | django-strong-migrations                  |
+| :---------------------- | :-------------------------------------------- | :-------------------------------------- | :---------------------------------------- |
+| **Primary Focus**       | **Database Locking** & Operational Safety     | Backward Compatibility (Code vs Schema) | Database Locking & Zero Downtime          |
+| **Analysis Method**     | **Static Analysis** (inspects code)           | Static Analysis (inspects code)         | **Runtime Inspection** (during `migrate`) |
+| **Database Connection** | **Optional** (Checks run offline)             | Optional / Not Required                 | **Required** (checks live DB state)       |
+| **CI/CD Friendly**      | **Native** (GitHub Actions, JSON, Pre-commit) | Native                                  | Requires DB container/connection          |
+| **Granularity**         | Operation & Line-level                        | Migration-level                         | Operation-level                           |
+| **PostgreSQL Support**  | **Deep** (Concurrent indexes, constraints)    | Basic                                   | Deep                                      |
+| **MySQL Support**       | Basic                                         | Good                                    | PostgreSQL focused                        |
+| **Remediation**         | **Code Suggestions** implementation guides    | Error messages                          | Safe pattern helpers                      |
 
----
+______________________________________________________________________
 
 ## Detailed Comparison
 
@@ -39,6 +39,6 @@ There are several tools available for ensuring Django migration safety. Each too
 
 ### Unique Features of `django-safe-migrations`
 
-1.  **Hybrid Ruleset**: We cover both "scary locking operations" (like `strong_migrations`) and "unsafe dropping of data" (like the linter).
-2.  **Suggestive Fixes**: We don't just say "Error". We output the actual Python code snippet you should specifically use to fix the issue (e.g., proper 3-step migration for adding a column).
-3.  **Modern Ecosystem**: Built from the ground up for GitHub Actions (annotations support) and modern Django versions (3.2 - 5.1+).
+1. **Hybrid Ruleset**: We cover both "scary locking operations" (like `strong_migrations`) and "unsafe dropping of data" (like the linter).
+2. **Suggestive Fixes**: We don't just say "Error". We output the actual Python code snippet you should specifically use to fix the issue (e.g., proper 3-step migration for adding a column).
+3. **Modern Ecosystem**: Built from the ground up for GitHub Actions (annotations support) and modern Django versions (3.2 - 5.1+).

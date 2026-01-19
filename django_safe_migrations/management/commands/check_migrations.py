@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sys
-from typing import Any
+from typing import IO, Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
@@ -44,9 +44,15 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--format",
-            choices=["console", "json", "github"],
+            choices=["console", "json", "github", "sarif"],
             default="console",
             help="Output format (default: console)",
+        )
+        parser.add_argument(
+            "--output",
+            "-o",
+            type=str,
+            help="Output file path (defaults to stdout)",
         )
         parser.add_argument(
             "--fail-on-warning",
@@ -84,6 +90,7 @@ class Command(BaseCommand):
         """
         app_labels = options["app_labels"]
         output_format = options["format"]
+        output_file = options["output"]
         fail_on_warning = options["fail_on_warning"]
         new_only = options["new_only"]
         show_suggestions = not options["no_suggestions"]
@@ -124,15 +131,30 @@ class Command(BaseCommand):
             # Check all apps
             issues.extend(analyzer.analyze_all(exclude_apps=exclude_apps))
 
-        # Get reporter
-        reporter_kwargs: dict[str, object] = {"stream": self.stdout}
-        if output_format == "console":
-            reporter_kwargs["show_suggestions"] = show_suggestions
+        # Determine output stream
+        output_stream: IO[str]
+        if output_file:
+            output_stream = open(output_file, "w", encoding="utf-8")
+        else:
+            output_stream = self.stdout  # type: ignore[assignment]
 
-        reporter = get_reporter(output_format, **reporter_kwargs)
+        try:
+            # Get reporter
+            reporter_kwargs: dict[str, object] = {"stream": output_stream}
+            if output_format == "console":
+                reporter_kwargs["show_suggestions"] = show_suggestions
 
-        # Generate report
-        reporter.report(issues)
+            reporter = get_reporter(output_format, **reporter_kwargs)
+
+            # Generate report
+            reporter.report(issues)
+        finally:
+            # Close file if we opened one
+            if output_file:
+                output_stream.close()
+                self.stdout.write(
+                    self.style.SUCCESS(f"Report written to {output_file}")
+                )
 
         # Determine exit code
         errors = [i for i in issues if i.severity == Severity.ERROR]

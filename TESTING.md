@@ -15,7 +15,7 @@ covering matrix testing, Docker integration, multi-database backend testing, and
 8. [Coverage Requirements](#coverage-requirements)
 9. [Adding New Tests](#adding-new-tests)
 
----
+______________________________________________________________________
 
 ## Overview
 
@@ -35,7 +35,7 @@ The testing strategy is designed to ensure `django-safe-migrations` works correc
 | Database Tests    | Test database-specific behavior         | `tests/database/`    | CI matrix     |
 | End-to-End Tests  | Test complete workflows                 | `tests/e2e/`         | PR/Release    |
 
----
+______________________________________________________________________
 
 ## Test Matrix
 
@@ -105,7 +105,7 @@ deps =
 commands = mypy django_safe_migrations/
 ```
 
----
+______________________________________________________________________
 
 ## Running Tests Locally
 
@@ -170,7 +170,7 @@ make type-check
 make check
 ```
 
----
+______________________________________________________________________
 
 ## Pre-commit Hooks
 
@@ -255,7 +255,7 @@ repos:
         args: ["-c", "pyproject.toml"]
 ```
 
----
+______________________________________________________________________
 
 ## Docker Testing
 
@@ -395,7 +395,7 @@ docker-compose -f docker-compose.test.yml up postgres test-py311 --build
 docker-compose -f docker-compose.test.yml down -v
 ```
 
----
+______________________________________________________________________
 
 ## Multi-Database Backend Testing
 
@@ -506,7 +506,7 @@ pytest -m "not postgres"
 pytest -m postgres
 ```
 
----
+______________________________________________________________________
 
 ## CI/CD Pipeline
 
@@ -690,7 +690,7 @@ jobs:
         run: pytest -v -m gpu
 ```
 
----
+______________________________________________________________________
 
 ## Coverage Requirements
 
@@ -744,7 +744,7 @@ xdg-open htmlcov/index.html  # Linux
 start htmlcov/index.html  # Windows
 ```
 
----
+______________________________________________________________________
 
 ## Adding New Tests
 
@@ -837,7 +837,7 @@ def not_null_field_operation():
     )
 ```
 
----
+______________________________________________________________________
 
 ## Troubleshooting
 
@@ -873,7 +873,7 @@ def not_null_field_operation():
 - Check existing discussions
 - Review CI logs for detailed error messages
 
----
+______________________________________________________________________
 
 ## Summary
 
