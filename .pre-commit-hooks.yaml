@@ -1,0 +1,10 @@
+- id: check-migrations
+  name: Check Django migrations safety
+  description: Detect unsafe Django migrations before they break production
+  entry: python -m django_safe_migrations.cli
+  language: python
+  types: [python]
+  files: migrations/.*\.py$
+  pass_filenames: false
+  require_serial: true
+  additional_dependencies: ["Django>=3.2"]

@@ -120,6 +120,7 @@ dmypy.json
 .pyre/
 
 # IDE
+.claude
 .idea/
 .vscode/
 *.swp
@@ -132,6 +133,12 @@ Thumbs.db
 
 # GitHub Copilot instructions (user-specific)
 .github/copilot-instructions.md
+
+# Claude Code local settings (user-specific, may contain secrets)
+.claude/settings.local.json
+
+# MCP configuration (contains API tokens)
+.mcp.json
 
 # Local environment overrides
 .env.local

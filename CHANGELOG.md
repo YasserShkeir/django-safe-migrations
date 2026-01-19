@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-01-19
+
+### Added
+
+- **SARIF Reporter**: Output migration issues in SARIF 2.1.0 format for GitHub Code Scanning integration.
+- **Inline Suppression Comments**: Suppress specific rules per-operation using `# safe-migrations: ignore SM001` comments.
+- **Pre-commit Hook**: Official `.pre-commit-hooks.yaml` for repository-wide pre-commit integration.
+- **Django Compatibility Documentation**: Dedicated page documenting version support and API differences.
+- **Rule Documentation**: Comprehensive "Why Each Rule Exists" pages for all 17 rules (SM001-SM017).
+- **Markdown Linting**: Added markdownlint and mdformat for consistent documentation formatting.
+
+### Changed
+
+- Management command now supports `--format=sarif` and `--output/-o` options for file output.
+
+### Documentation
+
+- Added GitHub Code Scanning integration guide.
+- Added pre-commit hook integration guide.
+- Added Safe Migration Patterns reference page.
+- Added Detected Patterns guide showing what each rule looks for.
+- Fixed ReadTheDocs navigation (added missing api.md, changelog.md, patterns.md).
+- Fixed broken emoji encoding in README.md.
+- Consolidated changelog files (docs/changelog.md now includes main CHANGELOG.md).
+
+### Compatibility
+
+- Tested against Django 3.2, 4.2, 5.0, 5.1, and 6.0.
+- Tested against Python 3.9, 3.10, 3.11, 3.12, and 3.13.
+
 ## [0.1.2] - 2026-01-17
 
 ### Added
@@ -50,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `check_migrations` management command with filters (`--new-only`, `--app`).
 - **Documentation**:
   - Comprehensive documentation site using MkDocs.
-  - [Comparison Guide](docs/comparison.md) vs `django-migration-linter` and `django-strong-migrations`.
+  - Comparison Guide vs `django-migration-linter` and `django-strong-migrations`.
   - Security audit and compliance tracking.
 - **Testing & Quality**:
   - Docker-based integration testing suite supporting PostgreSQL and MySQL.
@@ -62,7 +92,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented detailed security documentation regarding `EXTRA_RULES` and dynamic code loading.
 - Established security reporting policy.
 
-[Unreleased]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/YasserShkeir/django-safe-migrations/releases/tag/v0.1.0

@@ -4,12 +4,14 @@ from django_safe_migrations.reporters.base import BaseReporter
 from django_safe_migrations.reporters.console import ConsoleReporter
 from django_safe_migrations.reporters.github import GitHubReporter
 from django_safe_migrations.reporters.json_reporter import JsonReporter
+from django_safe_migrations.reporters.sarif import SarifReporter
 
 __all__ = [
     "BaseReporter",
     "ConsoleReporter",
     "JsonReporter",
     "GitHubReporter",
+    "SarifReporter",
     "get_reporter",
 ]
 
@@ -18,7 +20,7 @@ def get_reporter(format_name: str, **kwargs: object) -> BaseReporter:
     """Get a reporter instance by format name.
 
     Args:
-        format_name: One of 'console', 'json', 'github'.
+        format_name: One of 'console', 'json', 'github', 'sarif'.
         **kwargs: Additional arguments to pass to the reporter.
 
     Returns:
@@ -31,6 +33,7 @@ def get_reporter(format_name: str, **kwargs: object) -> BaseReporter:
         "console": ConsoleReporter,
         "json": JsonReporter,
         "github": GitHubReporter,
+        "sarif": SarifReporter,
     }
 
     if format_name not in reporters:

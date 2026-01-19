@@ -91,7 +91,82 @@ SAFE_MIGRATIONS = {
 }
 ```
 
----
+______________________________________________________________________
+
+## Inline Suppression Comments
+
+You can suppress specific rules on a per-operation basis using inline comments in your migration files.
+
+### Syntax
+
+```python
+# safe-migrations: ignore SM001
+# safe-migrations: ignore SM001, SM002
+# safe-migrations: ignore SM001 -- reason for suppression
+# safe-migrations: ignore all
+```
+
+### Usage
+
+Place the suppression comment on the line immediately before the operation, or on the same line:
+
+```python
+operations = [
+    # safe-migrations: ignore SM001 -- adding nullable first, will add NOT NULL later
+    migrations.AddField(
+        model_name='user',
+        name='email',
+        field=models.CharField(max_length=255, null=True),
+    ),
+
+    # safe-migrations: ignore SM002, SM003 -- intentional cleanup, field unused
+    migrations.RemoveField(
+        model_name='user',
+        name='legacy_field',
+    ),
+
+    migrations.AddIndex(  # safe-migrations: ignore SM010 -- small table
+        model_name='setting',
+        index=models.Index(fields=['key'], name='setting_key_idx'),
+    ),
+]
+```
+
+### Ignore All Rules
+
+To suppress all rules for an operation:
+
+```python
+# safe-migrations: ignore all -- this migration has been reviewed
+migrations.RunSQL(
+    sql='...',
+    reverse_sql='...',
+)
+```
+
+### Best Practices
+
+1. **Always include a reason** — Future developers (including yourself) will want to know why:
+
+   ```python
+   # safe-migrations: ignore SM002 -- field removed from code in previous deploy
+   ```
+
+2. **Be specific** — Only suppress the rules that apply:
+
+   ```python
+   # ✅ Good - specific
+   # safe-migrations: ignore SM001
+
+   # ❌ Avoid - too broad
+   # safe-migrations: ignore all
+   ```
+
+3. **Keep suppressions minimal** — If you're suppressing many rules, consider if the migration is actually safe.
+
+4. **Document in PR** — When adding suppressions, explain in your PR description why it's safe.
+
+______________________________________________________________________
 
 ## Command Options
 

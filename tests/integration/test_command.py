@@ -273,6 +273,143 @@ class TestCommandOptions:
         assert "SM007" in output  # RunSQL without reverse
 
 
+class TestSarifOutput:
+    """Tests for SARIF output format (v0.2.0 feature)."""
+
+    def test_sarif_output_format(self):
+        """Test SARIF output is valid JSON with correct structure."""
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="sarif", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Verify SARIF structure
+        assert "$schema" in data
+        assert "sarif" in data["$schema"]
+        assert data["version"] == "2.1.0"
+        assert "runs" in data
+        assert len(data["runs"]) == 1
+
+        run = data["runs"][0]
+        assert "tool" in run
+        assert "results" in run
+
+        # Verify tool descriptor
+        assert run["tool"]["driver"]["name"] == "django-safe-migrations"
+        assert "rules" in run["tool"]["driver"]
+
+        # Verify results exist (testapp has issues)
+        assert len(run["results"]) > 0
+
+        # Verify result structure
+        result = run["results"][0]
+        assert "ruleId" in result
+        assert "level" in result
+        assert "message" in result
+        assert result["ruleId"].startswith("SM")
+
+    def test_sarif_severity_mapping(self):
+        """Test SARIF severity levels are correctly mapped."""
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="sarif", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        results = data["runs"][0]["results"]
+        levels = {r["level"] for r in results}
+
+        # Should have valid SARIF levels
+        valid_levels = {"error", "warning", "note"}
+        assert levels.issubset(valid_levels)
+
+    def test_sarif_includes_location(self):
+        """Test SARIF results include location information."""
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="sarif", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Find a result with location
+        for result in data["runs"][0]["results"]:
+            if "locations" in result and result["locations"]:
+                location = result["locations"][0]
+                assert "physicalLocation" in location
+                physical = location["physicalLocation"]
+                assert "artifactLocation" in physical
+                assert "uri" in physical["artifactLocation"]
+                return
+
+        # At least some results should have locations
+        # (not all may have file info depending on the issue)
+
+
+class TestOutputFileOption:
+    """Tests for --output file option (v0.2.0 feature)."""
+
+    def test_output_to_file_json(self, tmp_path):
+        """Test JSON output can be written to file."""
+        output_file = tmp_path / "report.json"
+
+        with pytest.raises(SystemExit):
+            call_command(
+                "check_migrations",
+                "testapp",
+                format="json",
+                output=str(output_file),
+            )
+
+        # File should exist and contain valid JSON
+        assert output_file.exists()
+        content = output_file.read_text()
+        data = json.loads(content)
+        assert "issues" in data
+        assert data["total"] > 0
+
+    def test_output_to_file_sarif(self, tmp_path):
+        """Test SARIF output can be written to file."""
+        output_file = tmp_path / "report.sarif"
+
+        with pytest.raises(SystemExit):
+            call_command(
+                "check_migrations",
+                "testapp",
+                format="sarif",
+                output=str(output_file),
+            )
+
+        # File should exist and contain valid SARIF
+        assert output_file.exists()
+        content = output_file.read_text()
+        data = json.loads(content)
+        assert data["version"] == "2.1.0"
+        assert "runs" in data
+
+    def test_output_file_with_safe_app(self, tmp_path):
+        """Test output file is created even for apps with no issues."""
+        output_file = tmp_path / "report.json"
+
+        try:
+            call_command(
+                "check_migrations",
+                "safeapp",
+                format="json",
+                output=str(output_file),
+            )
+        except SystemExit:
+            pass
+
+        assert output_file.exists()
+        content = output_file.read_text()
+        data = json.loads(content)
+        assert data["total"] == 0
+
+
 class TestSafeAppNoIssues:
     """Tests verifying safe migrations produce no issues."""
 
@@ -299,3 +436,122 @@ class TestSafeAppNoIssues:
         if output.strip():
             data = json.loads(output)
             assert data.get("total", 0) == 0
+
+
+class TestSuppressionComments:
+    """Tests for inline suppression comments (v0.2.0 feature)."""
+
+    def test_suppression_comment_prevents_detection(self):
+        """Test that suppression comment prevents rule from being reported.
+
+        Migration 0011_suppressed_not_null.py has a NOT NULL field without default
+        but includes a `# safe-migrations: ignore SM001` comment.
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Find issues from 0011_suppressed_not_null
+        suppressed_issues = [
+            i
+            for i in data["issues"]
+            if "0011_suppressed_not_null" in i.get("migration_name", "")
+            and i.get("rule_id") == "SM001"
+        ]
+
+        # SM001 should NOT be reported for this migration due to suppression
+        assert len(suppressed_issues) == 0
+
+    def test_suppression_only_affects_specified_rule(self):
+        """Test that suppression only affects the specified rule, not others."""
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # SM001 from 0002 should still be detected (no suppression)
+        sm001_issues = [
+            i
+            for i in data["issues"]
+            if i.get("rule_id") == "SM001"
+            and "0002_unsafe_not_null" in i.get("migration_name", "")
+        ]
+        assert len(sm001_issues) > 0
+
+    def test_unsuppressed_rules_still_detected(self):
+        """Test that rules without suppression are still detected."""
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Other rules (SM002, SM007, etc.) should still be detected
+        rule_ids = {i.get("rule_id") for i in data["issues"]}
+        assert "SM002" in rule_ids or "SM007" in rule_ids
+
+
+class TestCLIEntryPoint:
+    """Tests for CLI entry point used by pre-commit (v0.2.0 feature)."""
+
+    def test_cli_module_exists(self):
+        """Test that CLI module can be imported."""
+        from django_safe_migrations import cli
+
+        assert hasattr(cli, "main")
+
+    def test_cli_main_returns_exit_code(self):
+        """Test CLI main function returns proper exit codes."""
+        import os
+
+        from django_safe_migrations.cli import main
+
+        # Set Django settings for the test
+        os.environ["DJANGO_SETTINGS_MODULE"] = "tests.settings.sqlite"
+
+        # Test with safe app - should return 0
+        exit_code = main(["safeapp"])
+        assert exit_code == 0
+
+    def test_cli_main_with_issues_returns_nonzero(self):
+        """Test CLI returns non-zero exit code when issues found."""
+        import os
+
+        from django_safe_migrations.cli import main
+
+        os.environ["DJANGO_SETTINGS_MODULE"] = "tests.settings.sqlite"
+
+        # Test with testapp - has issues, should return 1
+        exit_code = main(["testapp"])
+        assert exit_code == 1
+
+    def test_cli_format_options(self):
+        """Test CLI accepts format options."""
+        import os
+
+        from django_safe_migrations.cli import main
+
+        os.environ["DJANGO_SETTINGS_MODULE"] = "tests.settings.sqlite"
+
+        # Should not raise for valid format options
+        # (output goes to stdout which we don't capture here)
+        exit_code = main(["safeapp", "--format", "json"])
+        assert exit_code == 0
+
+    def test_cli_exclude_apps(self):
+        """Test CLI --exclude-apps option works."""
+        import os
+
+        from django_safe_migrations.cli import main
+
+        os.environ["DJANGO_SETTINGS_MODULE"] = "tests.settings.sqlite"
+
+        # Excluding testapp should result in no issues (only safeapp checked)
+        exit_code = main(["--exclude-apps", "testapp"])
+        assert exit_code == 0
