@@ -10,10 +10,13 @@ import pytest
 from django.db import migrations, models
 
 from django_safe_migrations.utils import (
+    _get_operation_line_number_ast,
+    _get_operation_line_number_fallback,
     format_operation_name,
     get_app_migrations,
     get_db_vendor,
     get_migration_file_path,
+    get_operation_column_number,
     get_operation_line_number,
     is_mysql,
     is_postgres,
@@ -203,6 +206,276 @@ class Migration:
                     # Should find line 8 (migrations.CreateModel line)
                     assert result is not None
                     assert isinstance(result, int)
+        finally:
+            os.unlink(temp_path)
+
+
+class TestASTLineNumberDetection:
+    """Tests for AST-based line number detection."""
+
+    def test_ast_finds_first_operation(self):
+        """Test AST parser finds line number of first operation."""
+        migration_content = """from django.db import migrations, models
+
+class Migration:
+    dependencies = []
+
+    operations = [
+        migrations.CreateModel(
+            name="TestModel",
+            fields=[("id", models.AutoField(primary_key=True))],
+        ),
+    ]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(migration_content)
+            temp_path = f.name
+
+        try:
+            result = _get_operation_line_number_ast(temp_path, 0)
+            assert result == 7  # Line with migrations.CreateModel
+        finally:
+            os.unlink(temp_path)
+
+    def test_ast_finds_second_operation(self):
+        """Test AST parser finds line number of second operation."""
+        migration_content = """from django.db import migrations, models
+
+class Migration:
+    dependencies = []
+
+    operations = [
+        migrations.CreateModel(name="Model1", fields=[]),
+        migrations.AddField(
+            model_name="model1",
+            name="field1",
+            field=models.CharField(max_length=100),
+        ),
+    ]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(migration_content)
+            temp_path = f.name
+
+        try:
+            result = _get_operation_line_number_ast(temp_path, 1)
+            assert result == 8  # Line with migrations.AddField
+        finally:
+            os.unlink(temp_path)
+
+    def test_ast_handles_comments_in_operations(self):
+        """Test AST parser correctly handles comments inside operations list."""
+        migration_content = """from django.db import migrations, models
+
+class Migration:
+    dependencies = []
+
+    operations = [
+        # This is a comment that should be ignored
+        migrations.CreateModel(
+            name="TestModel",
+            fields=[("id", models.AutoField(primary_key=True))],
+        ),
+        # Another comment
+        migrations.AddField(
+            model_name="testmodel",
+            name="email",
+            field=models.CharField(max_length=255),
+        ),
+    ]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(migration_content)
+            temp_path = f.name
+
+        try:
+            # First operation should be on line 8 (after the comment)
+            result0 = _get_operation_line_number_ast(temp_path, 0)
+            assert result0 == 8
+
+            # Second operation should be on line 13 (after another comment)
+            result1 = _get_operation_line_number_ast(temp_path, 1)
+            assert result1 == 13
+        finally:
+            os.unlink(temp_path)
+
+    def test_ast_handles_multiline_strings(self):
+        """Test AST parser handles multi-line string literals."""
+        migration_content = '''from django.db import migrations
+
+class Migration:
+    dependencies = []
+
+    operations = [
+        migrations.RunSQL(
+            sql="""
+                SELECT * FROM table
+                WHERE something = 'value'
+            """,
+            reverse_sql="SELECT 1",
+        ),
+        migrations.RunPython(code=lambda apps, schema_editor: None),
+    ]
+'''
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(migration_content)
+            temp_path = f.name
+
+        try:
+            result0 = _get_operation_line_number_ast(temp_path, 0)
+            assert result0 == 7  # migrations.RunSQL line
+
+            result1 = _get_operation_line_number_ast(temp_path, 1)
+            assert result1 == 14  # migrations.RunPython line
+        finally:
+            os.unlink(temp_path)
+
+    def test_ast_returns_none_for_out_of_range_index(self):
+        """Test AST parser returns None for operation index out of range."""
+        migration_content = """from django.db import migrations
+
+class Migration:
+    operations = [
+        migrations.CreateModel(name="Test", fields=[]),
+    ]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(migration_content)
+            temp_path = f.name
+
+        try:
+            result = _get_operation_line_number_ast(temp_path, 5)
+            assert result is None
+        finally:
+            os.unlink(temp_path)
+
+    def test_ast_returns_none_for_syntax_error(self):
+        """Test AST parser returns None for files with syntax errors."""
+        migration_content = """from django.db import migrations
+
+class Migration:
+    operations = [
+        migrations.CreateModel(name="Test", fields=[]  # Missing closing paren
+    ]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(migration_content)
+            temp_path = f.name
+
+        try:
+            result = _get_operation_line_number_ast(temp_path, 0)
+            assert result is None
+        finally:
+            os.unlink(temp_path)
+
+    def test_ast_returns_none_for_missing_operations(self):
+        """Test AST parser returns None when operations list is missing."""
+        migration_content = """from django.db import migrations
+
+class Migration:
+    dependencies = []
+    # No operations defined
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(migration_content)
+            temp_path = f.name
+
+        try:
+            result = _get_operation_line_number_ast(temp_path, 0)
+            assert result is None
+        finally:
+            os.unlink(temp_path)
+
+
+class TestFallbackLineNumberDetection:
+    """Tests for fallback bracket-counting line number detection."""
+
+    def test_fallback_finds_operation(self):
+        """Test fallback method finds operation line numbers."""
+        migration_content = """from django.db import migrations, models
+
+class Migration:
+    operations = [
+        migrations.CreateModel(name="Test", fields=[]),
+    ]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(migration_content)
+            temp_path = f.name
+
+        try:
+            result = _get_operation_line_number_fallback(temp_path, 0)
+            assert result == 5  # Line with migrations.CreateModel
+        finally:
+            os.unlink(temp_path)
+
+    def test_fallback_returns_none_for_missing_file(self):
+        """Test fallback returns None for non-existent file."""
+        result = _get_operation_line_number_fallback("/nonexistent/path.py", 0)
+        assert result is None
+
+
+class TestGetOperationColumnNumber:
+    """Tests for get_operation_column_number function."""
+
+    def test_gets_column_number(self):
+        """Test getting column number of an operation."""
+        migration_content = """from django.db import migrations
+
+class Migration:
+    operations = [
+        migrations.CreateModel(name="Test", fields=[]),
+    ]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(migration_content)
+            temp_path = f.name
+
+        try:
+            mock_migration = MagicMock()
+
+            with patch(
+                "django_safe_migrations.utils.get_migration_file_path",
+                return_value=temp_path,
+            ):
+                result = get_operation_column_number(mock_migration, 0)
+                assert result == 8  # Column of 'migrations.CreateModel'
+        finally:
+            os.unlink(temp_path)
+
+    def test_column_number_returns_none_for_missing_file(self):
+        """Test column number returns None for missing file."""
+        mock_migration = MagicMock()
+
+        with patch(
+            "django_safe_migrations.utils.get_migration_file_path",
+            return_value=None,
+        ):
+            result = get_operation_column_number(mock_migration, 0)
+            assert result is None
+
+    def test_column_number_returns_none_for_out_of_range(self):
+        """Test column number returns None for operation index out of range."""
+        migration_content = """from django.db import migrations
+
+class Migration:
+    operations = [
+        migrations.CreateModel(name="Test", fields=[]),
+    ]
+"""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+            f.write(migration_content)
+            temp_path = f.name
+
+        try:
+            mock_migration = MagicMock()
+
+            with patch(
+                "django_safe_migrations.utils.get_migration_file_path",
+                return_value=temp_path,
+            ):
+                result = get_operation_column_number(mock_migration, 999)
+                assert result is None
         finally:
             os.unlink(temp_path)
 

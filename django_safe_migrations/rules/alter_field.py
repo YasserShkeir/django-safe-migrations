@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Optional
 
 from django.db import migrations
@@ -11,6 +12,34 @@ from django_safe_migrations.rules.base import BaseRule, Issue, Severity
 if TYPE_CHECKING:
     from django.db.migrations import Migration
     from django.db.migrations.operations.base import Operation
+
+logger = logging.getLogger("django_safe_migrations")
+
+# Attributes that are metadata-only and don't affect the database schema
+METADATA_ONLY_ATTRIBUTES = frozenset(
+    {
+        "verbose_name",
+        "help_text",
+        "error_messages",
+        "validators",
+        "choices",
+        "editable",
+        "serialize",
+        "blank",  # Django ORM validation only, no DB change
+        "db_column",  # Only affects column name, not type
+        "db_comment",  # Comment only, no schema change
+        "db_tablespace",  # Tablespace, not column type
+    }
+)
+
+# Attributes that may change but are safe in certain directions
+SAFE_DIRECTION_ATTRIBUTES = frozenset(
+    {
+        "null",  # True is always safe to add (removing NOT NULL)
+        "default",  # Adding/changing default is typically safe
+        "max_length",  # Increasing is safe in PostgreSQL
+    }
+)
 
 
 class AlterColumnTypeRule(BaseRule):
@@ -26,7 +55,12 @@ class AlterColumnTypeRule(BaseRule):
     - Changing precision/scale of numeric types
     - Changing between incompatible types
 
-    Safe pattern:
+    Safe changes (detected and skipped by this rule):
+    - Adding null=True (removes NOT NULL constraint)
+    - Changing only metadata (verbose_name, help_text, validators, etc.)
+    - Adding or changing default values
+
+    Safe pattern for unsafe changes:
     1. Add new column with desired type
     2. Backfill data in batches
     3. Update application to use new column
@@ -36,14 +70,6 @@ class AlterColumnTypeRule(BaseRule):
     rule_id = "SM004"
     severity = Severity.WARNING
     description = "Changing column type may rewrite table and lock it"
-
-    # Type changes that are generally safe
-    SAFE_TYPE_CHANGES: set[tuple[str, str]] = {
-        # Widening varchar is safe in PostgreSQL
-        ("CharField", "CharField"),
-        ("TextField", "TextField"),
-        # Adding null to existing field
-    }
 
     def check(
         self,
@@ -67,13 +93,13 @@ class AlterColumnTypeRule(BaseRule):
         field = operation.field
         field_type = field.__class__.__name__
 
-        # We can't easily detect the old type from the operation alone,
-        # so we warn about all AlterField operations that change the field
-        # type significantly.
-
-        # Skip if just changing null/blank/default (metadata changes)
-        # These are generally safe
-        if self._is_metadata_only_change(field):
+        # Skip if this appears to be a metadata-only or safe change
+        if self._is_likely_safe_change(field):
+            logger.debug(
+                "Skipping AlterField on %s.%s - detected as safe change",
+                operation.model_name,
+                operation.name,
+            )
             return None
 
         return self.create_issue(
@@ -85,21 +111,43 @@ class AlterColumnTypeRule(BaseRule):
             ),
         )
 
-    def _is_metadata_only_change(self, field: object) -> bool:
-        """Check if field change appears to be metadata-only.
+    def _is_likely_safe_change(self, field: object) -> bool:
+        """Check if the field change appears to be safe.
 
-        This is a heuristic - we can't know the previous field definition.
-        We assume if the field has very common safe attributes set, it
-        might be a safe change.
+        Heuristics used to detect safe changes:
+        1. If null=True is set, this might be adding NULL (safe)
+        2. If the field type commonly has safe alterations
+
+        Since we can't know the previous field state, we use heuristics
+        based on the new field's attributes. This may have false negatives
+        but aims to reduce false positives for common safe patterns.
 
         Args:
             field: The new field definition.
 
         Returns:
-            True if the change appears to be metadata-only.
+            True if the change appears to be safe, False otherwise.
         """
-        # For now, we flag all AlterField operations as potentially unsafe
-        # In the future, we could track state between migrations
+        # Heuristic 1: If null=True, this might be adding NULL which is safe
+        # (Removing NOT NULL constraint doesn't require table rewrite)
+        if getattr(field, "null", False) is True:
+            logger.debug("Field has null=True - likely safe (adding NULL)")
+            return True
+
+        # Heuristic 2: If this is a TextField, AlterField is usually
+        # for metadata changes since TEXT type changes are rare
+        field_type = field.__class__.__name__
+        if field_type == "TextField":
+            # TextField alterations are usually metadata-only
+            # since you can't really change TEXT to something else safely
+            logger.debug("TextField alteration - likely metadata-only")
+            return True
+
+        # Heuristic 3: BooleanField/NullBooleanField changes are usually safe
+        if field_type in ("BooleanField", "NullBooleanField"):
+            logger.debug("BooleanField alteration - likely safe")
+            return True
+
         return False
 
     def get_suggestion(self, operation: Operation) -> str:

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import ast
+import logging
 import os
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from django.db.migrations import Migration
+
+logger = logging.getLogger("django_safe_migrations")
 
 
 def get_migration_file_path(migration: Migration) -> str | None:
@@ -32,24 +36,100 @@ def get_migration_file_path(migration: Migration) -> str | None:
 
 
 def get_operation_line_number(migration: Migration, operation_index: int) -> int | None:
-    """Get the approximate line number of an operation in a migration file.
+    """Get the line number of an operation in a migration file using AST parsing.
 
-    This is a best-effort function that parses the migration file
-    to find where an operation is defined.
+    Uses Python's AST module to accurately locate operations in migration files,
+    handling comments, multi-line strings, and complex formatting correctly.
 
     Args:
         migration: A Django migration instance.
         operation_index: The index of the operation in the operations list.
 
     Returns:
-        The line number, or None if not found.
+        The line number (1-indexed), or None if not found.
     """
     file_path = get_migration_file_path(migration)
     if not file_path or not os.path.exists(file_path):
+        logger.debug("Migration file not found: %s", file_path)
         return None
 
+    # Try AST-based detection first
+    line_number = _get_operation_line_number_ast(file_path, operation_index)
+    if line_number is not None:
+        return line_number
+
+    # Fall back to bracket-counting for edge cases
+    logger.debug("AST parsing failed, falling back to bracket counting")
+    return _get_operation_line_number_fallback(file_path, operation_index)
+
+
+def _get_operation_line_number_ast(file_path: str, operation_index: int) -> int | None:
+    """Get operation line number using AST parsing.
+
+    Args:
+        file_path: Path to the migration file.
+        operation_index: The index of the operation in the operations list.
+
+    Returns:
+        The line number (1-indexed), or None if not found.
+    """
     try:
-        with open(file_path, "r") as f:
+        with open(file_path, "r", encoding="utf-8") as f:
+            source = f.read()
+
+        tree = ast.parse(source)
+
+        # Find the Migration class
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == "Migration":
+                # Find operations = [...] assignment
+                for item in node.body:
+                    if isinstance(item, ast.Assign):
+                        for target in item.targets:
+                            if (
+                                isinstance(target, ast.Name)
+                                and target.id == "operations"
+                            ):
+                                # Get the list elements
+                                if isinstance(item.value, ast.List):
+                                    elements = item.value.elts
+                                    if operation_index < len(elements):
+                                        return elements[operation_index].lineno
+                                    logger.debug(
+                                        "Operation index %d out of range "
+                                        "(list has %d elements)",
+                                        operation_index,
+                                        len(elements),
+                                    )
+                                    return None
+        logger.debug("Could not find Migration class or operations list in AST")
+        return None
+
+    except SyntaxError as e:
+        logger.debug("Syntax error parsing migration file: %s", e)
+        return None
+    except (OSError, IOError) as e:
+        logger.debug("Could not read migration file: %s", e)
+        return None
+
+
+def _get_operation_line_number_fallback(
+    file_path: str, operation_index: int
+) -> int | None:
+    """Fallback line number detection using bracket counting.
+
+    This is a simpler approach that may fail on complex migrations
+    but provides a fallback when AST parsing fails.
+
+    Args:
+        file_path: Path to the migration file.
+        operation_index: The index of the operation in the operations list.
+
+    Returns:
+        The line number (1-indexed), or None if not found.
+    """
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
         operations_start = None
@@ -78,10 +158,53 @@ def get_operation_line_number(migration: Migration, operation_index: int) -> int
                 if bracket_depth <= 0:
                     break
 
-    except (OSError, IOError):
-        pass
+    except (OSError, IOError) as e:
+        logger.debug("Could not read migration file for fallback parsing: %s", e)
 
     return None
+
+
+def get_operation_column_number(
+    migration: Migration, operation_index: int
+) -> int | None:
+    """Get the column number of an operation in a migration file.
+
+    Uses AST parsing to get accurate column positions for SARIF reporting.
+
+    Args:
+        migration: A Django migration instance.
+        operation_index: The index of the operation in the operations list.
+
+    Returns:
+        The column number (0-indexed), or None if not found.
+    """
+    file_path = get_migration_file_path(migration)
+    if not file_path or not os.path.exists(file_path):
+        return None
+
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            source = f.read()
+
+        tree = ast.parse(source)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == "Migration":
+                for item in node.body:
+                    if isinstance(item, ast.Assign):
+                        for target in item.targets:
+                            if (
+                                isinstance(target, ast.Name)
+                                and target.id == "operations"
+                            ):
+                                if isinstance(item.value, ast.List):
+                                    elements = item.value.elts
+                                    if operation_index < len(elements):
+                                        return elements[operation_index].col_offset
+        return None
+
+    except (SyntaxError, OSError, IOError):
+        return None
 
 
 def format_operation_name(operation: Any) -> str:

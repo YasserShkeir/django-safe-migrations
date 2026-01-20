@@ -46,12 +46,94 @@ class TestAlterColumnTypeRule:
         operation = migrations.AlterField(
             model_name="user",
             name="email",
-            field=models.TextField(),
+            field=models.CharField(max_length=255),
         )
         suggestion = rule.get_suggestion(operation)
 
         assert suggestion is not None
         assert "expand" in suggestion.lower() or "contract" in suggestion.lower()
+
+    # Smarter detection tests (v0.3.0)
+
+    def test_skips_alterfield_adding_null_true(self, mock_migration):
+        """Test that rule skips AlterField when adding null=True (safe)."""
+        rule = AlterColumnTypeRule()
+        operation = migrations.AlterField(
+            model_name="user",
+            name="email",
+            field=models.CharField(max_length=255, null=True),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        # Adding null=True is safe (removes NOT NULL constraint)
+        assert issue is None
+
+    def test_skips_alterfield_on_textfield(self, mock_migration):
+        """Test that rule skips AlterField on TextField (usually metadata only)."""
+        rule = AlterColumnTypeRule()
+        operation = migrations.AlterField(
+            model_name="user",
+            name="bio",
+            field=models.TextField(),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        # TextField alterations are usually metadata-only
+        assert issue is None
+
+    def test_skips_alterfield_on_booleanfield(self, mock_migration):
+        """Test that rule skips AlterField on BooleanField (safe)."""
+        rule = AlterColumnTypeRule()
+        operation = migrations.AlterField(
+            model_name="user",
+            name="is_active",
+            field=models.BooleanField(default=True),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        # BooleanField alterations are typically safe
+        assert issue is None
+
+    def test_detects_charfield_without_null_true(self, mock_migration):
+        """Test that rule still detects CharField without null=True."""
+        rule = AlterColumnTypeRule()
+        operation = migrations.AlterField(
+            model_name="user",
+            name="username",
+            field=models.CharField(max_length=100),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        # CharField without null=True could be type change, so flag it
+        assert issue is not None
+        assert issue.rule_id == "SM004"
+
+    def test_detects_integerfield_alteration(self, mock_migration):
+        """Test that rule detects IntegerField alteration (potentially unsafe)."""
+        rule = AlterColumnTypeRule()
+        operation = migrations.AlterField(
+            model_name="order",
+            name="quantity",
+            field=models.IntegerField(),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        # IntegerField changes could involve type changes
+        assert issue is not None
+        assert issue.rule_id == "SM004"
+
+    def test_skips_integerfield_with_null_true(self, mock_migration):
+        """Test that rule skips IntegerField with null=True."""
+        rule = AlterColumnTypeRule()
+        operation = migrations.AlterField(
+            model_name="order",
+            name="quantity",
+            field=models.IntegerField(null=True),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        # Adding null=True is safe even for IntegerField
+        assert issue is None
 
 
 class TestAddForeignKeyValidatesRule:

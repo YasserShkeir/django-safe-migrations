@@ -136,6 +136,7 @@ Thumbs.db
 
 # Claude Code local settings (user-specific, may contain secrets)
 .claude/settings.local.json
+CLAUDE.md
 
 # MCP configuration (contains API tokens)
 .mcp.json

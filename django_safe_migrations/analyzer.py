@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Optional
 
 from django_safe_migrations.conf import (
     get_excluded_apps,
-    get_rule_severity,
-    is_rule_disabled,
+    get_rule_severity_for_app,
+    is_rule_enabled_for_app,
 )
 from django_safe_migrations.rules import get_all_rules
 from django_safe_migrations.rules.base import BaseRule, Issue
@@ -23,6 +24,8 @@ from django_safe_migrations.utils import (
 
 if TYPE_CHECKING:
     from django.db.migrations import Migration
+
+logger = logging.getLogger("django_safe_migrations")
 
 
 class MigrationAnalyzer:
@@ -66,19 +69,31 @@ class MigrationAnalyzer:
         self.db_vendor = db_vendor or get_db_vendor()
         self._disabled_rules = disabled_rules
         self.rules = rules or get_all_rules(self.db_vendor)
+        logger.debug(
+            "Initialized analyzer: db_vendor=%s, rules=%d, disabled_rules=%s",
+            self.db_vendor,
+            len(self.rules),
+            self._disabled_rules,
+        )
 
-    def _is_rule_disabled(self, rule_id: str) -> bool:
-        """Check if a rule is disabled.
+    def _is_rule_enabled(self, rule_id: str, app_label: Optional[str] = None) -> bool:
+        """Check if a rule is enabled.
+
+        Checks individual rule disables, category-based disables, and
+        per-app configuration.
 
         Args:
             rule_id: The rule ID to check.
+            app_label: Optional app label for per-app configuration.
 
         Returns:
-            True if the rule should be skipped.
+            True if the rule should run, False if it should be skipped.
         """
+        # If explicit disabled_rules list provided to constructor, use that
         if self._disabled_rules is not None:
-            return rule_id in self._disabled_rules
-        return is_rule_disabled(rule_id)
+            return rule_id not in self._disabled_rules
+        # Otherwise, use full configuration (individual + category + per-app)
+        return is_rule_enabled_for_app(rule_id, app_label)
 
     def analyze_migration(
         self,
@@ -106,6 +121,12 @@ class MigrationAnalyzer:
             migration_name = getattr(migration, "name", None)
 
         operations = getattr(migration, "operations", [])
+        logger.debug(
+            "Analyzing migration: %s.%s (%d operations)",
+            app_label,
+            migration_name,
+            len(operations),
+        )
 
         # Pre-parse suppression comments for efficiency
         suppressions = get_suppressions_for_migration(migration)
@@ -115,12 +136,22 @@ class MigrationAnalyzer:
             operation_line = get_operation_line_number(migration, idx)
 
             for rule in self.rules:
-                # Skip disabled rules
-                if self._is_rule_disabled(rule.rule_id):
+                # Skip disabled rules (individual, category-based, or per-app)
+                if not self._is_rule_enabled(rule.rule_id, app_label):
+                    logger.debug(
+                        "Skipping rule %s: disabled for app %s",
+                        rule.rule_id,
+                        app_label,
+                    )
                     continue
 
                 # Skip rules that don't apply to this database
                 if not rule.applies_to_db(self.db_vendor):
+                    logger.debug(
+                        "Skipping rule %s: does not apply to %s",
+                        rule.rule_id,
+                        self.db_vendor,
+                    )
                     continue
 
                 # Check for inline suppression comments
@@ -128,6 +159,11 @@ class MigrationAnalyzer:
                     if is_operation_suppressed(
                         file_path, operation_line, rule.rule_id, suppressions
                     ):
+                        logger.debug(
+                            "Skipping rule %s: suppressed at line %d",
+                            rule.rule_id,
+                            operation_line,
+                        )
                         continue
 
                 issue = rule.check(
@@ -137,8 +173,10 @@ class MigrationAnalyzer:
                 )
 
                 if issue:
-                    # Apply severity override from settings
-                    issue.severity = get_rule_severity(issue.rule_id, issue.severity)
+                    # Apply severity override from settings (per-app or global)
+                    issue.severity = get_rule_severity_for_app(
+                        issue.rule_id, issue.severity, app_label
+                    )
 
                     # Enrich issue with context
                     if issue.file_path is None:
@@ -150,8 +188,21 @@ class MigrationAnalyzer:
                     if issue.migration_name is None:
                         issue.migration_name = migration_name
 
+                    logger.debug(
+                        "Found issue: %s in %s.%s at line %s",
+                        issue.rule_id,
+                        app_label,
+                        migration_name,
+                        operation_line,
+                    )
                     issues.append(issue)
 
+        logger.debug(
+            "Migration %s.%s analysis complete: %d issues found",
+            app_label,
+            migration_name,
+            len(issues),
+        )
         return issues
 
     def analyze_app(self, app_label: str) -> list[Issue]:
@@ -177,6 +228,7 @@ class MigrationAnalyzer:
 
         # Sort by migration name
         app_migrations.sort(key=lambda x: x[0])
+        logger.debug("Analyzing app %s: %d migrations", app_label, len(app_migrations))
 
         for name, migration in app_migrations:
             issues.extend(
@@ -187,6 +239,7 @@ class MigrationAnalyzer:
                 )
             )
 
+        logger.debug("App %s analysis complete: %d issues", app_label, len(issues))
         return issues
 
     def analyze_all(
@@ -213,12 +266,19 @@ class MigrationAnalyzer:
 
         # Get all apps with migrations from disk_migrations
         apps_with_migrations = set(app for (app, _) in loader.disk_migrations.keys())
+        logger.debug(
+            "Analyzing all apps: %d apps, excluding %s",
+            len(apps_with_migrations),
+            exclude_apps,
+        )
 
         for app_label in sorted(apps_with_migrations):
             if app_label in exclude_apps:
+                logger.debug("Skipping excluded app: %s", app_label)
                 continue
             issues.extend(self.analyze_app(app_label))
 
+        logger.info("Analysis complete: %d total issues found", len(issues))
         return issues
 
     def analyze_new_migrations(
@@ -245,6 +305,7 @@ class MigrationAnalyzer:
         recorder = MigrationRecorder(connection)
         applied = recorder.applied_migrations()
 
+        unapplied_count = 0
         for key in loader.disk_migrations.keys():
             app, name = key
             # Skip if already applied
@@ -255,6 +316,9 @@ class MigrationAnalyzer:
             if app_label and app != app_label:
                 continue
 
+            unapplied_count += 1
+            logger.debug("Checking unapplied migration: %s.%s", app, name)
+
             migration = loader.get_migration(app, name)
             issues.extend(
                 self.analyze_migration(
@@ -264,6 +328,11 @@ class MigrationAnalyzer:
                 )
             )
 
+        logger.info(
+            "Analyzed %d unapplied migrations: %d issues found",
+            unapplied_count,
+            len(issues),
+        )
         return issues
 
     def get_summary(self, issues: list[Issue]) -> dict[str, Any]:

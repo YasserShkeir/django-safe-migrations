@@ -42,6 +42,7 @@ This section documents each rule in detail, explaining:
 | [SM011](SM011.md) | ERROR    | Unique constraint without concurrent index (PostgreSQL) |
 | [SM015](SM015.md) | WARNING  | Using deprecated unique_together                        |
 | [SM017](SM017.md) | WARNING  | Adding CHECK constraint (validates rows)                |
+| [SM018](SM018.md) | ERROR    | Concurrent operations require atomic = False            |
 
 ### RunSQL & RunPython
 
@@ -51,6 +52,12 @@ This section documents each rule in detail, explaining:
 | [SM008](SM008.md) | INFO     | RunPython data migration                         |
 | [SM012](SM012.md) | ERROR    | ALTER TYPE ADD VALUE in transaction (PostgreSQL) |
 | [SM016](SM016.md) | INFO     | RunPython without reverse_code                   |
+
+### Naming Conventions
+
+| Rule              | Severity | Description                           |
+| ----------------- | -------- | ------------------------------------- |
+| [SM019](SM019.md) | INFO     | Column name is a SQL reserved keyword |
 
 ## Severity Levels
 
@@ -80,4 +87,6 @@ SM014  WARNING  rename_model                Renaming model/table
 SM015  WARNING  alter_unique_together       Deprecated unique_together
 SM016  INFO     run_python_no_reverse       RunPython without reverse
 SM017  WARNING  check_constraint            CHECK validates rows
+SM018  ERROR    concurrent_in_atomic        Concurrent op in atomic migration
+SM019  INFO     reserved_keyword_column     Column name is SQL reserved keyword
 ```
