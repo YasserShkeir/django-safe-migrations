@@ -12,6 +12,12 @@ SAFE_MIGRATIONS = {
     # Disable specific rules by ID
     "DISABLED_RULES": ["SM006", "SM008"],
 
+    # Disable entire categories of rules
+    "DISABLED_CATEGORIES": ["reversibility"],
+
+    # Enable only specific categories (whitelist mode)
+    # "ENABLED_CATEGORIES": ["destructive", "high-risk"],
+
     # Override severity levels for specific rules
     "RULE_SEVERITY": {
         "SM002": "INFO",  # Downgrade from WARNING to INFO
@@ -30,6 +36,16 @@ SAFE_MIGRATIONS = {
         "oauth2_provider",
     ],
 
+    # Per-app rule configuration (v0.3.0+)
+    "APP_RULES": {
+        "legacy_app": {
+            "DISABLED_RULES": ["SM001", "SM002"],  # Relax rules for legacy
+        },
+        "critical_app": {
+            "ENABLED_CATEGORIES": ["high-risk"],  # Only check critical rules
+        },
+    },
+
     # Fail on warnings (same as --fail-on-warning)
     "FAIL_ON_WARNING": False,
 }
@@ -47,6 +63,50 @@ SAFE_MIGRATIONS = {
     ],
 }
 ```
+
+### `DISABLED_CATEGORIES`
+
+Disable entire categories of rules at once. Available categories:
+
+| Category          | Description               | Rules                                           |
+| ----------------- | ------------------------- | ----------------------------------------------- |
+| `postgresql`      | PostgreSQL-specific rules | SM005, SM010, SM011, SM012, SM013, SM018        |
+| `indexes`         | Index-related operations  | SM010, SM011, SM018                             |
+| `constraints`     | Constraint operations     | SM009, SM011, SM015, SM017                      |
+| `destructive`     | Destructive operations    | SM002, SM003, SM009                             |
+| `locking`         | Table-locking operations  | SM004, SM005, SM010, SM011, SM013               |
+| `data-loss`       | Potential data loss       | SM002, SM003, SM009                             |
+| `reversibility`   | Non-reversible migrations | SM007, SM016, SM017                             |
+| `data-migrations` | Data migration concerns   | SM007, SM008, SM016, SM017                      |
+| `high-risk`       | High-risk operations      | SM001, SM002, SM003, SM010, SM011, SM018        |
+| `informational`   | Info-level warnings       | SM006, SM014, SM019                             |
+| `naming`          | Naming convention rules   | SM019                                           |
+| `schema-changes`  | Schema modification rules | SM001, SM002, SM003, SM004, SM006, SM013, SM014 |
+
+```python
+SAFE_MIGRATIONS = {
+    "DISABLED_CATEGORIES": [
+        "reversibility",    # Don't check for reversible migrations
+        "informational",    # Suppress info-level warnings
+    ],
+}
+```
+
+### `ENABLED_CATEGORIES`
+
+When set, enables **whitelist mode** — only rules in the specified categories will run:
+
+```python
+SAFE_MIGRATIONS = {
+    # Only check high-risk and destructive operations
+    "ENABLED_CATEGORIES": ["high-risk", "destructive"],
+}
+```
+
+!!! note
+    If both `ENABLED_CATEGORIES` and `DISABLED_CATEGORIES` are set,
+    `ENABLED_CATEGORIES` is applied first (whitelist), then
+    `DISABLED_CATEGORIES` removes rules from that set.
 
 ### `RULE_SEVERITY`
 
@@ -88,6 +148,53 @@ If `True`, warnings will cause a non-zero exit code (same as `--fail-on-warning`
 ```python
 SAFE_MIGRATIONS = {
     "FAIL_ON_WARNING": True,
+}
+```
+
+### `APP_RULES`
+
+Configure rules on a per-app basis. Each app can have its own `DISABLED_RULES`, `DISABLED_CATEGORIES`, `ENABLED_CATEGORIES`, and `RULE_SEVERITY`:
+
+```python
+SAFE_MIGRATIONS = {
+    "APP_RULES": {
+        # Legacy app with relaxed rules
+        "legacy_app": {
+            "DISABLED_RULES": ["SM001", "SM002"],
+            "RULE_SEVERITY": {"SM004": "INFO"},
+        },
+        # Critical app with strict rules
+        "payments": {
+            "ENABLED_CATEGORIES": ["high-risk", "destructive"],
+        },
+        # Third-party integration with category disabled
+        "webhooks": {
+            "DISABLED_CATEGORIES": ["indexes"],
+        },
+    },
+}
+```
+
+**Priority order** (highest to lowest):
+
+1. App-specific `DISABLED_RULES`
+2. App-specific `DISABLED_CATEGORIES` / `ENABLED_CATEGORIES`
+3. Global `DISABLED_RULES`
+4. Global `DISABLED_CATEGORIES` / `ENABLED_CATEGORIES`
+
+This means you can have strict global rules but relax them for specific apps:
+
+```python
+SAFE_MIGRATIONS = {
+    # Global: enable strict mode
+    "ENABLED_CATEGORIES": ["high-risk"],
+
+    "APP_RULES": {
+        # But for legacy_app, allow everything
+        "legacy_app": {
+            "ENABLED_CATEGORIES": [],  # Empty = no category filtering
+        },
+    },
 }
 ```
 

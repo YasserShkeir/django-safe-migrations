@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Optional
 
 from django.db import migrations
@@ -11,6 +12,8 @@ from django_safe_migrations.rules.base import BaseRule, Issue, Severity
 if TYPE_CHECKING:
     from django.db.migrations import Migration
     from django.db.migrations.operations.base import Operation
+
+logger = logging.getLogger("django_safe_migrations")
 
 
 class UnsafeIndexCreationRule(BaseRule):
@@ -229,4 +232,112 @@ class UnsafeUniqueConstraintRule(BaseRule):
    )
 
 Note: This approach adds the constraint without rebuilding the index.
+"""
+
+
+class ConcurrentInAtomicMigrationRule(BaseRule):
+    """Detect concurrent operations in atomic migrations.
+
+    AddIndexConcurrently and RemoveIndexConcurrently require the migration
+    to have atomic = False. PostgreSQL cannot run concurrent operations
+    inside a transaction, so Django must disable transaction wrapping.
+
+    If atomic is not explicitly set to False, the migration will fail
+    at runtime with an error like:
+        "CREATE INDEX CONCURRENTLY cannot run inside a transaction block"
+
+    Safe pattern:
+    - Set atomic = False on the Migration class when using concurrent operations
+    """
+
+    rule_id = "SM018"
+    severity = Severity.ERROR
+    description = "Concurrent operations require atomic = False"
+    db_vendors = ["postgresql"]
+
+    # Concurrent operation class names to detect
+    CONCURRENT_OPERATIONS = frozenset(
+        {
+            "AddIndexConcurrently",
+            "RemoveIndexConcurrently",
+        }
+    )
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Check if concurrent operation is in an atomic migration.
+
+        Args:
+            operation: The migration operation to check.
+            migration: The migration containing the operation.
+            **kwargs: Additional context.
+
+        Returns:
+            An Issue if the migration is atomic, None otherwise.
+        """
+        op_class_name = type(operation).__name__
+
+        # Check if this is a concurrent operation
+        if op_class_name not in self.CONCURRENT_OPERATIONS:
+            return None
+
+        # Check if migration has atomic = False
+        # Default is True (atomic), so we need explicit False
+        is_atomic = getattr(migration, "atomic", True)
+
+        if is_atomic:
+            return self.create_issue(
+                operation=operation,
+                migration=migration,
+                message=(
+                    f"{op_class_name} requires Migration.atomic = False. "
+                    f"Concurrent operations cannot run inside a transaction."
+                ),
+            )
+
+        logger.debug(
+            "Concurrent operation %s has atomic=False - OK",
+            op_class_name,
+        )
+        return None
+
+    def get_suggestion(self, operation: Operation) -> str:
+        """Return suggestion for fixing the migration.
+
+        Args:
+            operation: The problematic operation.
+
+        Returns:
+            A multi-line string with the suggested fix.
+        """
+        op_class_name = type(operation).__name__
+        model_name = getattr(operation, "model_name", "model")
+
+        return f"""Fix: Set atomic = False on the Migration class.
+
+PostgreSQL concurrent operations (like {op_class_name}) cannot run
+inside a transaction. Django must be told to not wrap the migration
+in a transaction.
+
+Correct migration:
+   from django.contrib.postgres.operations import {op_class_name}
+
+   class Migration(migrations.Migration):
+       atomic = False  # Required for concurrent operations!
+
+       dependencies = [...]
+
+       operations = [
+           {op_class_name}(
+               model_name='{model_name}',
+               ...
+           ),
+       ]
+
+Note: When atomic = False, each operation runs in its own transaction.
+If any operation fails, previous operations will NOT be rolled back.
 """

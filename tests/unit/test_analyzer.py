@@ -159,18 +159,20 @@ class TestMigrationAnalyzer:
         assert not any(issue.rule_id == "SM001" for issue in issues)
         assert any(issue.rule_id == "SM002" for issue in issues)
 
-    def test_is_rule_disabled_method(self, mock_migration_factory):
-        """Test the _is_rule_disabled method."""
+    def test_is_rule_enabled_method(self, mock_migration_factory):
+        """Test the _is_rule_enabled method."""
         analyzer_with_disabled = MigrationAnalyzer(
             db_vendor="postgresql",
             disabled_rules=["SM006", "SM008"],
         )
 
-        assert analyzer_with_disabled._is_rule_disabled("SM006") is True
-        assert analyzer_with_disabled._is_rule_disabled("SM008") is True
-        assert analyzer_with_disabled._is_rule_disabled("SM001") is False
+        # Disabled rules should return False for is_rule_enabled
+        assert analyzer_with_disabled._is_rule_enabled("SM006") is False
+        assert analyzer_with_disabled._is_rule_enabled("SM008") is False
+        # Non-disabled rules should return True
+        assert analyzer_with_disabled._is_rule_enabled("SM001") is True
 
         # Without explicit disabled_rules, it should check settings
         analyzer_default = MigrationAnalyzer(db_vendor="postgresql")
-        # Will return False unless settings have DISABLED_RULES
-        assert isinstance(analyzer_default._is_rule_disabled("SM001"), bool)
+        # Will return True unless settings have DISABLED_RULES or DISABLED_CATEGORIES
+        assert isinstance(analyzer_default._is_rule_enabled("SM001"), bool)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from django_safe_migrations.rules.add_field import NotNullWithoutDefaultRule
 from django_safe_migrations.rules.add_index import (
+    ConcurrentInAtomicMigrationRule,
     UnsafeIndexCreationRule,
     UnsafeUniqueConstraintRule,
 )
@@ -20,6 +21,7 @@ from django_safe_migrations.rules.constraints import (
     AddUniqueConstraintRule,
     AlterUniqueTogetherRule,
 )
+from django_safe_migrations.rules.naming import ReservedKeywordColumnRule
 from django_safe_migrations.rules.remove_field import (
     DropColumnUnsafeRule,
     DropTableUnsafeRule,
@@ -55,9 +57,12 @@ __all__ = [
     "AddUniqueConstraintRule",
     "AlterUniqueTogetherRule",
     "AddCheckConstraintRule",
-    # SM010-SM011 - Index rules
+    # SM010-SM011, SM018 - Index rules
     "UnsafeIndexCreationRule",
     "UnsafeUniqueConstraintRule",
+    "ConcurrentInAtomicMigrationRule",
+    # SM019 - Naming rules
+    "ReservedKeywordColumnRule",
     # Functions
     "get_all_rules",
     "get_rules_for_db",
@@ -81,13 +86,16 @@ ALL_RULES: list[type[BaseRule]] = [
     AddUniqueConstraintRule,
     AlterUniqueTogetherRule,
     AddCheckConstraintRule,
-    # Index rules (SM010-SM011)
+    # Index rules (SM010-SM011, SM018)
     UnsafeIndexCreationRule,
     UnsafeUniqueConstraintRule,
+    ConcurrentInAtomicMigrationRule,
     # PostgreSQL specific (SM012-SM014)
     EnumAddValueInTransactionRule,
     AlterVarcharLengthRule,
     RenameModelRule,
+    # Naming rules (SM019)
+    ReservedKeywordColumnRule,
 ]
 
 

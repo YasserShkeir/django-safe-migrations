@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-01-20
+
+### Added
+
+- **New Rules**:
+  - SM018: Detects `AddIndexConcurrently` / `RemoveIndexConcurrently` in atomic migrations (PostgreSQL). These operations require `atomic = False`.
+  - SM019: Warns when column names are SQL reserved keywords (user, order, group, type, etc.).
+
+- **Rule Categories**: Group related rules for bulk enable/disable:
+  - Categories: `postgresql`, `indexes`, `constraints`, `destructive`, `locking`, `data-loss`, `reversibility`, `data-migrations`, `high-risk`, `informational`, `naming`, `schema-changes`
+  - New settings: `DISABLED_CATEGORIES`, `ENABLED_CATEGORIES`
+
+- **Per-App Configuration**: Configure rules differently per Django app via `APP_RULES` setting:
+  - Per-app `DISABLED_RULES`, `DISABLED_CATEGORIES`, `ENABLED_CATEGORIES`
+  - Per-app `RULE_SEVERITY` overrides
+
+- **Debug Logging**: Comprehensive logging throughout the analyzer for troubleshooting. Enable with:
+  ```python
+  LOGGING = {
+      'loggers': {
+          'django_safe_migrations': {'level': 'DEBUG'},
+      },
+  }
+  ```
+
+### Changed
+
+- **AST-Based Line Detection**: More accurate line number detection using Python AST parsing instead of bracket counting. Handles comments, multi-line strings, and complex formatting.
+
+- **Smarter AlterField Detection (SM004)**: Reduced false positives by detecting safe changes:
+  - Adding `null=True` (safe)
+  - `TextField` alterations (usually metadata only)
+  - `BooleanField` alterations (typically safe)
+
+### Documentation
+
+- Updated configuration guide with category and per-app settings.
+- Added rule documentation for SM018 and SM019.
+- Updated rules index with new rules.
+
 ## [0.2.0] - 2026-01-19
 
 ### Added
@@ -92,7 +132,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented detailed security documentation regarding `EXTRA_RULES` and dynamic code loading.
 - Established security reporting policy.
 
-[Unreleased]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.0...v0.1.1
