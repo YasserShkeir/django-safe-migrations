@@ -264,6 +264,64 @@ class Migration(migrations.Migration):
     ]
 ```
 
+## ⚠️ Known Limitations
+
+### Static Analysis Only
+
+Django Safe Migrations performs **static analysis** of migration files. It cannot:
+
+- Know the actual size of your tables (all tables are treated equally)
+- Detect issues that depend on runtime data (e.g., whether NULL values exist)
+- Know your specific deployment strategy or downtime tolerance
+
+**Recommendation**: Use suppression comments with explanations when you've verified a migration is safe for your specific situation.
+
+### Database-Specific Rules
+
+Some rules only apply to PostgreSQL:
+
+| Rule  | PostgreSQL Only | Reason                                            |
+| ----- | --------------- | ------------------------------------------------- |
+| SM010 | Yes             | `CONCURRENTLY` is PostgreSQL-specific             |
+| SM011 | Yes             | Concurrent unique indexes are PostgreSQL-specific |
+| SM012 | Yes             | Enum handling is PostgreSQL-specific              |
+| SM018 | Yes             | `AddIndexConcurrently` is PostgreSQL-specific     |
+| SM021 | Yes             | Concurrent unique constraint pattern              |
+
+For MySQL, SQLite, or other databases, these rules are automatically skipped.
+
+### Cannot Detect All Unsafe Patterns
+
+The analyzer may miss unsafe patterns in:
+
+- Complex `RunSQL` statements (only basic pattern matching)
+- Dynamic SQL generated at runtime
+- Migrations that call external services
+- Custom migration operations
+
+### False Positives
+
+Some detected issues may be false positives:
+
+- **SM001** on new tables (no existing rows to worry about)
+- **SM010** on small lookup tables (concurrent not needed)
+- **SM020** when you've already backfilled NULL values
+
+Use suppression comments to document why a pattern is safe in your case:
+
+```python
+# safe-migrations: ignore SM001 -- new table, no existing data
+migrations.AddField(...)
+```
+
+### Source Inspection Limitations
+
+Rules that inspect Python source code (like SM026 for RunPython batching) may not work in all environments:
+
+- Compiled/optimized Python installations
+- Some Docker configurations
+- When source files are not available
+
 ## 🤝 Contributing
 
 Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details.

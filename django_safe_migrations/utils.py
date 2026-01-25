@@ -108,7 +108,7 @@ def _get_operation_line_number_ast(file_path: str, operation_index: int) -> int 
     except SyntaxError as e:
         logger.debug("Syntax error parsing migration file: %s", e)
         return None
-    except (OSError, IOError) as e:
+    except OSError as e:
         logger.debug("Could not read migration file: %s", e)
         return None
 
@@ -158,7 +158,7 @@ def _get_operation_line_number_fallback(
                 if bracket_depth <= 0:
                     break
 
-    except (OSError, IOError) as e:
+    except OSError as e:
         logger.debug("Could not read migration file for fallback parsing: %s", e)
 
     return None
@@ -203,7 +203,7 @@ def get_operation_column_number(
                                         return elements[operation_index].col_offset
         return None
 
-    except (SyntaxError, OSError, IOError):
+    except (SyntaxError, OSError):
         return None
 
 

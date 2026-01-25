@@ -125,3 +125,104 @@ class TestNotNullWithoutDefaultRule:
         issue = rule.check(operation, mock_migration)
 
         assert issue is None
+
+
+class TestExpensiveDefaultCallableRule:
+    """Tests for ExpensiveDefaultCallableRule (SM022)."""
+
+    def test_detects_timezone_now_default(self, mock_migration):
+        """Test that rule detects timezone.now as default."""
+        from django.utils import timezone
+
+        from django_safe_migrations.rules.add_field import ExpensiveDefaultCallableRule
+
+        rule = ExpensiveDefaultCallableRule()
+        operation = migrations.AddField(
+            model_name="article",
+            name="created_at",
+            field=models.DateTimeField(default=timezone.now),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM022"
+        assert issue.severity == Severity.WARNING
+        assert "created_at" in issue.message
+
+    def test_detects_datetime_now_default(self, mock_migration):
+        """Test that rule detects datetime.now as default."""
+        from datetime import datetime
+
+        from django_safe_migrations.rules.add_field import ExpensiveDefaultCallableRule
+
+        rule = ExpensiveDefaultCallableRule()
+        operation = migrations.AddField(
+            model_name="article",
+            name="created_at",
+            field=models.DateTimeField(default=datetime.now),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM022"
+
+    def test_allows_uuid4_default(self, mock_migration):
+        """Test that rule allows uuid.uuid4 (fast)."""
+        import uuid
+
+        from django_safe_migrations.rules.add_field import ExpensiveDefaultCallableRule
+
+        rule = ExpensiveDefaultCallableRule()
+        operation = migrations.AddField(
+            model_name="article",
+            name="uuid",
+            field=models.UUIDField(default=uuid.uuid4),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        # uuid4 is fast and should be allowed
+        assert issue is None
+
+    def test_allows_static_default(self, mock_migration):
+        """Test that rule allows static default values."""
+        from django_safe_migrations.rules.add_field import ExpensiveDefaultCallableRule
+
+        rule = ExpensiveDefaultCallableRule()
+        operation = migrations.AddField(
+            model_name="article",
+            name="status",
+            field=models.CharField(max_length=50, default="draft"),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_ignores_non_addfield_operations(self, mock_migration):
+        """Test that rule ignores non-AddField operations."""
+        from django_safe_migrations.rules.add_field import ExpensiveDefaultCallableRule
+
+        rule = ExpensiveDefaultCallableRule()
+        operation = migrations.RemoveField(
+            model_name="user",
+            name="email",
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_provides_suggestion(self, mock_migration):
+        """Test that rule provides a helpful suggestion."""
+        from django.utils import timezone
+
+        from django_safe_migrations.rules.add_field import ExpensiveDefaultCallableRule
+
+        rule = ExpensiveDefaultCallableRule()
+        operation = migrations.AddField(
+            model_name="article",
+            name="created_at",
+            field=models.DateTimeField(default=timezone.now),
+        )
+        suggestion = rule.get_suggestion(operation)
+
+        assert suggestion is not None
+        assert "auto_now_add" in suggestion.lower() or "batch" in suggestion.lower()

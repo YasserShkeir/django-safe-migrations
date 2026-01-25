@@ -300,6 +300,155 @@ class TestAlterVarcharLengthRule:
         assert "VARCHAR" in suggestion or "max_length" in suggestion
 
 
+class TestAlterFieldNullFalseRule:
+    """Tests for AlterFieldNullFalseRule (SM020)."""
+
+    def test_detects_alterfield_null_false(self, mock_migration):
+        """Test that rule detects AlterField with null=False."""
+        from django_safe_migrations.rules.alter_field import AlterFieldNullFalseRule
+
+        rule = AlterFieldNullFalseRule()
+        operation = migrations.AlterField(
+            model_name="user",
+            name="email",
+            field=models.CharField(max_length=255, null=False),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM020"
+        assert issue.severity == Severity.ERROR
+        assert "email" in issue.message
+        assert (
+            "null=false" in issue.message.lower() or "not null" in issue.message.lower()
+        )
+
+    def test_detects_alterfield_implicit_null_false(self, mock_migration):
+        """Test that rule detects AlterField with implicit null=False (default)."""
+        from django_safe_migrations.rules.alter_field import AlterFieldNullFalseRule
+
+        rule = AlterFieldNullFalseRule()
+        # CharField without null=True defaults to null=False
+        operation = migrations.AlterField(
+            model_name="user",
+            name="status",
+            field=models.CharField(max_length=50),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM020"
+
+    def test_allows_alterfield_null_true(self, mock_migration):
+        """Test that rule allows AlterField with null=True."""
+        from django_safe_migrations.rules.alter_field import AlterFieldNullFalseRule
+
+        rule = AlterFieldNullFalseRule()
+        operation = migrations.AlterField(
+            model_name="user",
+            name="nickname",
+            field=models.CharField(max_length=255, null=True),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_ignores_non_alterfield_operations(
+        self, not_null_field_operation, mock_migration
+    ):
+        """Test that rule ignores non-AlterField operations."""
+        from django_safe_migrations.rules.alter_field import AlterFieldNullFalseRule
+
+        rule = AlterFieldNullFalseRule()
+        issue = rule.check(not_null_field_operation, mock_migration)
+
+        assert issue is None
+
+    def test_provides_suggestion(self):
+        """Test that rule provides a helpful suggestion."""
+        from django_safe_migrations.rules.alter_field import AlterFieldNullFalseRule
+
+        rule = AlterFieldNullFalseRule()
+        operation = migrations.AlterField(
+            model_name="user",
+            name="email",
+            field=models.CharField(max_length=255),
+        )
+        suggestion = rule.get_suggestion(operation)
+
+        assert suggestion is not None
+        assert "backfill" in suggestion.lower() or "default" in suggestion.lower()
+
+
+class TestAlterFieldUniqueRule:
+    """Tests for AlterFieldUniqueRule (SM021)."""
+
+    def test_detects_alterfield_unique_true(self, mock_migration):
+        """Test that rule detects AlterField with unique=True."""
+        from django_safe_migrations.rules.alter_field import AlterFieldUniqueRule
+
+        rule = AlterFieldUniqueRule()
+        operation = migrations.AlterField(
+            model_name="user",
+            name="email",
+            field=models.CharField(max_length=255, unique=True),
+        )
+        issue = rule.check(operation, mock_migration, db_vendor="postgresql")
+
+        assert issue is not None
+        assert issue.rule_id == "SM021"
+        assert issue.severity == Severity.ERROR
+        assert "email" in issue.message
+        assert "unique" in issue.message.lower()
+
+    def test_allows_alterfield_without_unique(self, mock_migration):
+        """Test that rule allows AlterField without unique=True."""
+        from django_safe_migrations.rules.alter_field import AlterFieldUniqueRule
+
+        rule = AlterFieldUniqueRule()
+        operation = migrations.AlterField(
+            model_name="user",
+            name="email",
+            field=models.CharField(max_length=255),
+        )
+        issue = rule.check(operation, mock_migration, db_vendor="postgresql")
+
+        assert issue is None
+
+    def test_ignores_non_alterfield_operations(
+        self, not_null_field_operation, mock_migration
+    ):
+        """Test that rule ignores non-AlterField operations."""
+        from django_safe_migrations.rules.alter_field import AlterFieldUniqueRule
+
+        rule = AlterFieldUniqueRule()
+        issue = rule.check(not_null_field_operation, mock_migration)
+
+        assert issue is None
+
+    def test_applies_to_postgresql(self):
+        """Test that rule applies to PostgreSQL."""
+        from django_safe_migrations.rules.alter_field import AlterFieldUniqueRule
+
+        rule = AlterFieldUniqueRule()
+        assert rule.applies_to_db("postgresql")
+
+    def test_provides_suggestion(self):
+        """Test that rule provides a helpful suggestion."""
+        from django_safe_migrations.rules.alter_field import AlterFieldUniqueRule
+
+        rule = AlterFieldUniqueRule()
+        operation = migrations.AlterField(
+            model_name="user",
+            name="email",
+            field=models.CharField(max_length=255, unique=True),
+        )
+        suggestion = rule.get_suggestion(operation)
+
+        assert suggestion is not None
+        assert "concurrent" in suggestion.lower() or "index" in suggestion.lower()
+
+
 class TestRenameModelRule:
     """Tests for RenameModelRule (SM014)."""
 

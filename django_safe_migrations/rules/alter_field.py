@@ -579,3 +579,202 @@ If you're sure no external references exist:
 3. Verify no other apps have foreign keys to this model
 4. Update any db_constraint=False foreign keys manually
 """
+
+
+class AlterFieldNullFalseRule(BaseRule):
+    """Detect AlterField changing null=True to null=False.
+
+    When changing a field from nullable to NOT NULL, PostgreSQL must:
+    1. Scan the entire table to verify no NULL values exist
+    2. Add the NOT NULL constraint
+
+    If any NULL values exist, the migration will fail. Even if no NULL values
+    exist, the scan can take time on large tables.
+
+    Safe pattern:
+    1. Add a CHECK constraint as NOT VALID first
+    2. Backfill any NULL values
+    3. Validate the constraint
+    4. Add the NOT NULL constraint
+    """
+
+    rule_id = "SM020"
+    severity = Severity.ERROR
+    description = "Changing field to NOT NULL may fail if NULL values exist"
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Check if operation changes a field to NOT NULL.
+
+        Args:
+            operation: The migration operation to check.
+            migration: The migration containing the operation.
+            **kwargs: Additional context.
+
+        Returns:
+            An Issue if the operation adds NOT NULL constraint, None otherwise.
+        """
+        if not isinstance(operation, migrations.AlterField):
+            return None
+
+        field = operation.field
+
+        # Check if the field has null=False (the default)
+        is_not_null = not getattr(field, "null", False)
+
+        if is_not_null:
+            return self.create_issue(
+                operation=operation,
+                migration=migration,
+                message=(
+                    f"AlterField on '{operation.name}' sets null=False. "
+                    f"Ensure all existing rows in '{operation.model_name}' "
+                    "have non-NULL values, or the migration will fail."
+                ),
+            )
+
+        return None
+
+    def get_suggestion(self, operation: Operation) -> str:
+        """Return suggestion for safely adding NOT NULL constraint.
+
+        Args:
+            operation: The problematic operation.
+
+        Returns:
+            A multi-line string with the suggested safe pattern.
+        """
+        field_name = getattr(operation, "name", "field_name")
+        model_name = getattr(operation, "model_name", "model")
+
+        # Documentation text showing SQL patterns, not executed
+        return f"""Safe pattern for adding NOT NULL constraint:
+
+1. First, check if any NULL values exist:
+   SELECT COUNT(*) FROM app_{model_name}
+   WHERE {field_name} IS NULL;
+
+2. If NULL values exist, backfill them first:
+   UPDATE app_{model_name}
+   SET {field_name} = 'default_value' WHERE {field_name} IS NULL;
+
+3. On PostgreSQL, you can add NOT NULL more safely:
+   ALTER TABLE app_{model_name}
+   ADD CONSTRAINT {field_name}_not_null
+   CHECK ({field_name} IS NOT NULL) NOT VALID;
+
+   ALTER TABLE app_{model_name}
+   VALIDATE CONSTRAINT {field_name}_not_null;
+
+   ALTER TABLE app_{model_name}
+   ALTER COLUMN {field_name} SET NOT NULL;
+
+   ALTER TABLE app_{model_name}
+   DROP CONSTRAINT {field_name}_not_null;
+
+This allows the validation to happen without blocking writes.
+"""  # nosec B608  # noqa: E501
+
+
+class AlterFieldUniqueRule(BaseRule):
+    """Detect adding unique constraint via AlterField(unique=True).
+
+    Adding unique=True via AlterField causes PostgreSQL to:
+    1. Scan the entire table to check for duplicates
+    2. Create a unique index
+    3. Hold locks during the operation
+
+    This can be slow and block writes on large tables.
+
+    Safe pattern:
+    1. Create a unique index concurrently first
+    2. Then add the constraint using the existing index
+    """
+
+    rule_id = "SM021"
+    severity = Severity.ERROR
+    description = "Adding unique=True via AlterField locks table during index creation"
+    db_vendors = ["postgresql"]
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Check if operation adds unique constraint via AlterField.
+
+        Args:
+            operation: The migration operation to check.
+            migration: The migration containing the operation.
+            **kwargs: Additional context.
+
+        Returns:
+            An Issue if unique=True is being added, None otherwise.
+        """
+        if not isinstance(operation, migrations.AlterField):
+            return None
+
+        field = operation.field
+
+        # Check if unique=True is set
+        is_unique = getattr(field, "unique", False)
+
+        if is_unique:
+            return self.create_issue(
+                operation=operation,
+                migration=migration,
+                message=(
+                    f"Adding unique=True to '{operation.name}' on "
+                    f"'{operation.model_name}' via AlterField will scan and lock "
+                    "the entire table during index creation."
+                ),
+            )
+
+        return None
+
+    def get_suggestion(self, operation: Operation) -> str:
+        """Return suggestion for safely adding unique constraint.
+
+        Args:
+            operation: The problematic operation.
+
+        Returns:
+            A multi-line string with the suggested safe pattern.
+        """
+        field_name = getattr(operation, "name", "field_name")
+        model_name = getattr(operation, "model_name", "model")
+
+        return f"""Safe pattern for adding unique constraint (PostgreSQL):
+
+1. Create the unique index concurrently first:
+   from django.contrib.postgres.operations import AddIndexConcurrently
+
+   class Migration(migrations.Migration):
+       atomic = False  # Required for concurrent operations
+
+       operations = [
+           AddIndexConcurrently(
+               model_name='{model_name}',
+               index=models.Index(
+                   fields=['{field_name}'],
+                   name='{model_name}_{field_name}_uniq_idx',
+               ),
+           ),
+       ]
+
+2. Then add the constraint using the existing index:
+   migrations.RunSQL(
+       sql='ALTER TABLE app_{model_name} '
+           'ADD CONSTRAINT {model_name}_{field_name}_uniq '
+           'UNIQUE USING INDEX {model_name}_{field_name}_uniq_idx',
+       reverse_sql='ALTER TABLE app_{model_name} '
+           'DROP CONSTRAINT {model_name}_{field_name}_uniq',
+   )
+
+This allows index creation to happen without blocking reads/writes.
+"""  # noqa: E501

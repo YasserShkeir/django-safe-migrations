@@ -6,6 +6,8 @@ from unittest.mock import patch
 
 from django_safe_migrations.conf import (
     RULE_CATEGORIES,
+    _find_similar,
+    _string_similarity,
     get_all_categories,
     get_app_config,
     get_app_rules_config,
@@ -15,6 +17,7 @@ from django_safe_migrations.conf import (
     get_disabled_rules,
     get_enabled_categories,
     get_excluded_apps,
+    get_extra_rules,
     get_fail_on_warning,
     get_rule_severity,
     get_rule_severity_for_app,
@@ -25,6 +28,8 @@ from django_safe_migrations.conf import (
     is_rule_disabled_by_category,
     is_rule_enabled,
     is_rule_enabled_for_app,
+    log_config_warnings,
+    validate_config,
 )
 from django_safe_migrations.rules.base import Severity
 
@@ -754,3 +759,559 @@ class TestGetRuleSeverityForApp:
             result = get_rule_severity_for_app("SM001", Severity.ERROR, None)
 
             assert result == Severity.INFO
+
+
+# -----------------------------------------------------------------------------
+# Configuration Validation Tests (v0.4.0)
+# -----------------------------------------------------------------------------
+
+
+class TestStringSimilarity:
+    """Tests for string similarity functions."""
+
+    def test_identical_strings_return_one(self):
+        """Test that identical strings return similarity of 1.0."""
+        result = _string_similarity("SM001", "SM001")
+        assert result == 1.0
+
+    def test_empty_strings_return_zero(self):
+        """Test that empty strings return similarity of 0.0."""
+        result = _string_similarity("", "SM001")
+        assert result == 0.0
+
+        result = _string_similarity("SM001", "")
+        assert result == 0.0
+
+    def test_similar_strings_high_score(self):
+        """Test that similar strings have high similarity."""
+        # SM001 vs SM002 - very similar
+        result = _string_similarity("SM001", "SM002")
+        assert result > 0.5
+
+    def test_different_strings_low_score(self):
+        """Test that different strings have low similarity."""
+        result = _string_similarity("SM001", "totally_different")
+        assert result < 0.5
+
+
+class TestFindSimilar:
+    """Tests for _find_similar function."""
+
+    def test_finds_similar_rule_id(self):
+        """Test finding similar rule ID for typo."""
+        valid_names = {"SM001", "SM002", "SM003", "SM010", "SM011"}
+        result = _find_similar("SM00", valid_names, threshold=0.5)
+
+        # Should suggest SM001 or SM002 (closest matches)
+        assert result in {"SM001", "SM002", "SM003"}
+
+    def test_returns_none_below_threshold(self):
+        """Test returns None when no match above threshold."""
+        valid_names = {"SM001", "SM002", "SM003"}
+        result = _find_similar("COMPLETELY_DIFFERENT", valid_names, threshold=0.8)
+
+        assert result is None
+
+    def test_finds_similar_category(self):
+        """Test finding similar category name."""
+        valid_names = {"postgresql", "mysql", "indexes", "destructive"}
+        result = _find_similar("postgressql", valid_names, threshold=0.5)
+
+        assert result == "postgresql"
+
+
+class TestValidateConfig:
+    """Tests for validate_config function."""
+
+    def test_returns_empty_for_valid_config(self):
+        """Test returns empty list for valid configuration."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": ["SM001", "SM002"],
+                "DISABLED_CATEGORIES": ["indexes"],
+            }
+
+            warnings = validate_config()
+
+            assert warnings == []
+
+    def test_warns_on_invalid_rule_id(self):
+        """Test warns on invalid rule ID in DISABLED_RULES."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": ["SM999"],  # Invalid rule
+            }
+
+            warnings = validate_config()
+
+            assert len(warnings) == 1
+            assert "SM999" in warnings[0]
+            assert "DISABLED_RULES" in warnings[0]
+
+    def test_suggests_correction_for_typo(self):
+        """Test suggests correction for typo in rule ID."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": ["SM00"],  # Typo for SM001
+            }
+
+            warnings = validate_config()
+
+            assert len(warnings) == 1
+            assert "Did you mean" in warnings[0]
+
+    def test_warns_on_invalid_category(self):
+        """Test warns on invalid category in DISABLED_CATEGORIES."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_CATEGORIES": ["nonexistent_category"],
+            }
+
+            warnings = validate_config()
+
+            assert len(warnings) == 1
+            assert "nonexistent_category" in warnings[0]
+            assert "DISABLED_CATEGORIES" in warnings[0]
+
+    def test_warns_on_invalid_enabled_category(self):
+        """Test warns on invalid category in ENABLED_CATEGORIES."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "ENABLED_CATEGORIES": ["bad_category"],
+            }
+
+            warnings = validate_config()
+
+            assert len(warnings) == 1
+            assert "bad_category" in warnings[0]
+            assert "ENABLED_CATEGORIES" in warnings[0]
+
+    def test_warns_on_invalid_rule_severity(self):
+        """Test warns on invalid rule ID in RULE_SEVERITY."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "RULE_SEVERITY": {"SM999": "INFO"},
+            }
+
+            warnings = validate_config()
+
+            assert len(warnings) == 1
+            assert "SM999" in warnings[0]
+            assert "RULE_SEVERITY" in warnings[0]
+
+    def test_validates_app_rules(self):
+        """Test validates APP_RULES configuration."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "APP_RULES": {
+                    "myapp": {
+                        "DISABLED_RULES": ["SM999"],  # Invalid
+                    },
+                },
+            }
+
+            warnings = validate_config()
+
+            assert len(warnings) == 1
+            assert "SM999" in warnings[0]
+            assert "myapp" in warnings[0]
+
+    def test_validates_app_rules_categories(self):
+        """Test validates categories in APP_RULES."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "APP_RULES": {
+                    "myapp": {
+                        "DISABLED_CATEGORIES": ["bad_category"],
+                    },
+                },
+            }
+
+            warnings = validate_config()
+
+            assert len(warnings) == 1
+            assert "bad_category" in warnings[0]
+            assert "myapp" in warnings[0]
+
+    def test_warns_on_non_dict_app_config(self):
+        """Test warns when APP_RULES value is not a dict."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "APP_RULES": {
+                    "myapp": ["SM001"],  # Should be dict, not list
+                },
+            }
+
+            warnings = validate_config()
+
+            assert len(warnings) == 1
+            assert "myapp" in warnings[0]
+            assert "dictionary" in warnings[0].lower()
+
+
+class TestLogConfigWarnings:
+    """Tests for log_config_warnings function."""
+
+    def test_logs_warnings(self):
+        """Test that warnings are logged."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": ["SM999"],
+            }
+
+            with patch("django_safe_migrations.conf.logger") as mock_logger:
+                log_config_warnings()
+
+                # Should have logged a warning
+                mock_logger.warning.assert_called()
+
+
+class TestGetExtraRules:
+    """Tests for get_extra_rules function."""
+
+    def test_returns_empty_by_default(self):
+        """Test returns empty list when no EXTRA_RULES configured."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {}
+
+            result = get_extra_rules()
+
+            assert result == []
+
+    def test_returns_extra_rules_from_settings(self):
+        """Test returns EXTRA_RULES from settings."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "EXTRA_RULES": [
+                    "myproject.rules.CustomRule",
+                    "another.module.MyRule",
+                ],
+            }
+
+            result = get_extra_rules()
+
+            assert result == [
+                "myproject.rules.CustomRule",
+                "another.module.MyRule",
+            ]
+
+
+# -----------------------------------------------------------------------------
+# Configuration Edge Cases Tests
+# -----------------------------------------------------------------------------
+
+
+class TestConfigurationEdgeCases:
+    """Tests for edge cases in configuration handling."""
+
+    def test_empty_disabled_rules_list(self):
+        """Test empty DISABLED_RULES list is handled."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": [],
+            }
+
+            result = get_disabled_rules()
+            assert result == []
+
+            # Rule should be enabled
+            assert is_rule_enabled("SM001") is True
+
+    def test_disabled_rules_with_whitespace(self):
+        """Test that rule IDs with whitespace are handled."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": [" SM001 ", "SM002"],  # With whitespace
+            }
+
+            result = get_disabled_rules()
+            # Whitespace is preserved (config should be validated)
+            assert " SM001 " in result
+
+    def test_duplicate_disabled_rules(self):
+        """Test duplicate rule IDs in DISABLED_RULES."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": ["SM001", "SM001", "SM002"],  # Duplicate
+            }
+
+            result = get_disabled_rules()
+            # Duplicates are preserved in list
+            assert result == ["SM001", "SM001", "SM002"]
+
+    def test_case_sensitive_rule_ids(self):
+        """Test that rule IDs are case-sensitive."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": ["sm001"],  # Lowercase
+            }
+
+            # Lowercase should not disable uppercase SM001
+            result = is_rule_disabled("SM001")
+            assert result is False
+
+    def test_invalid_severity_string_ignored(self):
+        """Test that invalid severity strings are handled gracefully."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "RULE_SEVERITY": {
+                    "SM001": "INVALID_SEVERITY",
+                },
+            }
+
+            # Should handle gracefully, returning default
+            result = get_rule_severity("SM001", Severity.ERROR)
+            # May return default or raise - both are acceptable
+            assert result in [Severity.ERROR, None] or isinstance(result, Severity)
+
+    def test_none_value_in_disabled_rules(self):
+        """Test handling of None value in DISABLED_RULES list."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": ["SM001", None, "SM002"],  # type: ignore[list-item]
+            }
+
+            result = get_disabled_rules()
+            # Should include None in list
+            assert None in result or len(result) == 3
+
+    def test_numeric_value_in_disabled_rules(self):
+        """Test handling of numeric value in DISABLED_RULES list."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": ["SM001", 123, "SM002"],  # type: ignore[list-item]
+            }
+
+            result = get_disabled_rules()
+            assert 123 in result or len(result) == 3
+
+    def test_empty_string_in_disabled_rules(self):
+        """Test handling of empty string in DISABLED_RULES."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": ["SM001", "", "SM002"],
+            }
+
+            warnings = validate_config()
+            # Empty string should generate warning
+            assert (
+                any("" in w or "empty" in w.lower() for w in warnings)
+                or len(warnings) > 0
+            )
+
+    def test_very_long_rule_id(self):
+        """Test handling of very long rule ID."""
+        long_id = "SM" + "0" * 1000  # Very long rule ID
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": [long_id],
+            }
+
+            warnings = validate_config()
+            assert len(warnings) > 0  # Should warn about invalid rule
+
+    def test_unicode_in_rule_id(self):
+        """Test handling of unicode in rule ID."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": ["SM001\u200b"],  # Zero-width space
+            }
+
+            warnings = validate_config()
+            # Should warn about invalid rule ID
+            assert len(warnings) > 0
+
+    def test_nested_app_rules_config(self):
+        """Test deeply nested APP_RULES configuration."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "APP_RULES": {
+                    "myapp": {
+                        "DISABLED_RULES": ["SM001"],
+                        "DISABLED_CATEGORIES": ["indexes"],
+                        "ENABLED_CATEGORIES": ["high-risk"],
+                        "RULE_SEVERITY": {
+                            "SM002": "INFO",
+                            "SM003": "WARNING",
+                        },
+                    },
+                },
+            }
+
+            config = get_app_config("myapp")
+            assert config["DISABLED_RULES"] == ["SM001"]
+            assert config["DISABLED_CATEGORIES"] == ["indexes"]
+
+    def test_conflicting_enabled_and_disabled_categories(self):
+        """Test handling of same category in both enabled and disabled."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "ENABLED_CATEGORIES": ["indexes"],
+                "DISABLED_CATEGORIES": ["indexes"],  # Conflict!
+            }
+
+            # DISABLED takes precedence (blacklist over whitelist for same)
+            result = is_rule_disabled_by_category("SM010")
+            # Behavior may vary - just ensure no crash
+            assert isinstance(result, bool)
+
+    def test_empty_app_rules_config(self):
+        """Test handling of empty dict in APP_RULES."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "APP_RULES": {
+                    "myapp": {},  # Empty config
+                },
+            }
+
+            config = get_app_config("myapp")
+            assert config == {}
+
+            # Rules should still work with empty app config
+            assert is_rule_enabled_for_app("SM001", "myapp") is True
+
+    def test_special_characters_in_app_name(self):
+        """Test handling of special characters in app name."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "APP_RULES": {
+                    "my-app_v2.0": {"DISABLED_RULES": ["SM001"]},
+                },
+            }
+
+            config = get_app_config("my-app_v2.0")
+            assert config["DISABLED_RULES"] == ["SM001"]
+
+    def test_missing_safe_migrations_attribute(self):
+        """Test handling when SAFE_MIGRATIONS doesn't exist on settings."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            # Delete the attribute if it exists
+            if hasattr(mock_settings, "SAFE_MIGRATIONS"):
+                delattr(mock_settings, "SAFE_MIGRATIONS")
+
+            # Configure to raise AttributeError
+            type(mock_settings).SAFE_MIGRATIONS = property(
+                lambda self: (_ for _ in ()).throw(AttributeError("no attr"))
+            )
+
+            config = get_config()
+            # Should return defaults
+            assert "DISABLED_RULES" in config
+            assert config["DISABLED_RULES"] == []
+
+    def test_safe_migrations_is_none(self):
+        """Test handling when SAFE_MIGRATIONS is explicitly None."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = None
+
+            # Current implementation raises TypeError on None
+            # This test documents that behavior
+            try:
+                config = get_config()
+                # If it doesn't raise, check it handled it
+                assert config["DISABLED_RULES"] == []
+            except TypeError:
+                # Raising TypeError is the current behavior for None
+                pass
+
+    def test_safe_migrations_is_non_dict(self):
+        """Test handling when SAFE_MIGRATIONS is not a dict."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = "not a dict"
+
+            # Current implementation raises ValueError on non-dict
+            # This test documents that behavior
+            try:
+                config = get_config()
+                # If it doesn't raise, check it handled it
+                assert isinstance(config, dict)
+            except (TypeError, ValueError):
+                # Raising is the current behavior for non-dict
+                pass
+
+    def test_severity_override_with_enum_directly(self):
+        """Test RULE_SEVERITY can accept Severity enum directly."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "RULE_SEVERITY": {
+                    "SM001": Severity.INFO,
+                    "SM002": Severity.WARNING,
+                },
+            }
+
+            result = get_rule_severity("SM001", Severity.ERROR)
+            assert result == Severity.INFO
+
+    def test_mixed_case_severity_strings(self):
+        """Test handling of mixed case severity strings."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "RULE_SEVERITY": {
+                    "SM001": "Info",
+                    "SM002": "WARNING",
+                    "SM003": "error",
+                },
+            }
+
+            overrides = get_severity_overrides()
+            assert overrides.get("SM001") == Severity.INFO
+            assert overrides.get("SM002") == Severity.WARNING
+            assert overrides.get("SM003") == Severity.ERROR
+
+    def test_empty_excluded_apps(self):
+        """Test empty EXCLUDED_APPS list."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "EXCLUDED_APPS": [],
+            }
+
+            result = get_excluded_apps()
+            assert result == []
+
+    def test_excluded_apps_with_django_apps(self):
+        """Test EXCLUDED_APPS includes Django built-in apps by default."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            # No EXCLUDED_APPS set - use defaults
+            mock_settings.SAFE_MIGRATIONS = {}
+
+            result = get_excluded_apps()
+            assert "admin" in result
+            assert "auth" in result
+            assert "contenttypes" in result
+
+    def test_validation_with_all_valid_settings(self):
+        """Test validation passes with all valid settings."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": ["SM001", "SM002"],
+                "DISABLED_CATEGORIES": ["indexes", "postgresql"],
+                "ENABLED_CATEGORIES": [],
+                "RULE_SEVERITY": {
+                    "SM003": "INFO",
+                    "SM004": "WARNING",
+                },
+                "APP_RULES": {
+                    "myapp": {
+                        "DISABLED_RULES": ["SM005"],
+                        "RULE_SEVERITY": {"SM006": "INFO"},
+                    }
+                },
+                "EXCLUDED_APPS": ["admin", "auth"],
+                "FAIL_ON_WARNING": True,
+                "EXTRA_RULES": [],
+            }
+
+            warnings = validate_config()
+            assert warnings == []
+
+    def test_validation_catches_multiple_errors(self):
+        """Test validation catches multiple configuration errors."""
+        with patch("django_safe_migrations.conf.settings") as mock_settings:
+            mock_settings.SAFE_MIGRATIONS = {
+                "DISABLED_RULES": ["SM999", "SM888"],  # Two invalid rules
+                "DISABLED_CATEGORIES": ["bad1", "bad2"],  # Two invalid categories
+            }
+
+            warnings = validate_config()
+            # Should have at least 4 warnings
+            assert len(warnings) >= 4

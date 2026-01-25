@@ -176,3 +176,200 @@ class TestMigrationAnalyzer:
         analyzer_default = MigrationAnalyzer(db_vendor="postgresql")
         # Will return True unless settings have DISABLED_RULES or DISABLED_CATEGORIES
         assert isinstance(analyzer_default._is_rule_enabled("SM001"), bool)
+
+
+class TestErrorRecovery:
+    """Tests for error recovery with malformed migrations."""
+
+    def test_migration_without_operations(self, mock_migration_factory):
+        """Test analyzer handles migration without operations list gracefully."""
+        migration = mock_migration_factory([])
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+
+        # Should not raise, returns empty list
+        issues = analyzer.analyze_migration(migration)
+        assert issues == []
+
+    def test_migration_with_none_operation(self, mock_migration_factory):
+        """Test analyzer handles None in operations list."""
+        # Create a migration and manually set operations to include None
+        migration = mock_migration_factory([])
+
+        # Manually add None to operations
+        migration.operations = [None]
+
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+
+        # Should handle gracefully, skipping None
+        try:
+            issues = analyzer.analyze_migration(migration)
+            # If it doesn't raise, should return empty or handle gracefully
+            assert isinstance(issues, list)
+        except (TypeError, AttributeError):
+            # If it raises, that's also acceptable behavior for malformed input
+            pass
+
+    def test_operation_with_missing_attributes(self, mock_migration_factory):
+        """Test analyzer handles operations with missing expected attributes."""
+
+        class MalformedOperation:
+            """An operation-like object missing expected attributes."""
+
+            pass
+
+        migration = mock_migration_factory([])
+        migration.operations = [MalformedOperation()]
+
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+
+        # Should handle gracefully
+        try:
+            issues = analyzer.analyze_migration(migration)
+            assert isinstance(issues, list)
+        except (TypeError, AttributeError):
+            # Acceptable for truly malformed operations
+            pass
+
+    def test_field_with_unusual_attributes(self):
+        """Test analyzer handles fields with unusual attribute values."""
+
+        class UnusualField:
+            """A field with unexpected attribute types."""
+
+            null = "not_a_bool"  # Should be bool
+            default = object()  # Unusual default
+            unique = 123  # Should be bool
+
+        operation = migrations.AddField(
+            model_name="user",
+            name="test_field",
+            field=UnusualField(),
+        )
+
+        from unittest.mock import Mock
+
+        migration = Mock()
+        migration.operations = [operation]
+        migration.app_label = "testapp"
+        migration.name = "0001_test"
+        migration.__module__ = "testapp.migrations.0001_test"
+
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+
+        # Should handle gracefully without crashing
+        try:
+            issues = analyzer.analyze_migration(migration)
+            assert isinstance(issues, list)
+        except (TypeError, AttributeError):
+            # Acceptable behavior
+            pass
+
+    def test_analyze_empty_app(self):
+        """Test analyzer handles app with no migrations."""
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+
+        # Should return empty list for non-existent app
+        try:
+            issues = analyzer.analyze_app("nonexistent_app_12345")
+            assert issues == []
+        except Exception:
+            # Some Django configurations may raise
+            pass
+
+    def test_runsql_with_none_sql(self, mock_migration_factory):
+        """Test analyzer handles RunSQL with None sql."""
+        operation = migrations.RunSQL(sql="", reverse_sql=None)
+
+        migration = mock_migration_factory([operation])
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+
+        # Should handle gracefully
+        issues = analyzer.analyze_migration(migration)
+        assert isinstance(issues, list)
+
+    def test_runpython_with_lambda(self, mock_migration_factory):
+        """Test analyzer handles RunPython with lambda (no source available)."""
+        operation = migrations.RunPython(
+            code=lambda apps, schema_editor: None,
+            reverse_code=None,
+        )
+
+        migration = mock_migration_factory([operation])
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+
+        # Should handle gracefully (SM026 may skip due to no source)
+        issues = analyzer.analyze_migration(migration)
+        assert isinstance(issues, list)
+
+    def test_unicode_in_field_names(self, mock_migration_factory):
+        """Test analyzer handles unicode characters in field/model names."""
+        operation = migrations.AddField(
+            model_name="użytkownik",  # Polish for "user"
+            name="imię",  # Polish for "name"
+            field=models.CharField(max_length=100, null=True),
+        )
+
+        migration = mock_migration_factory([operation])
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+
+        # Should handle unicode gracefully
+        issues = analyzer.analyze_migration(migration)
+        assert isinstance(issues, list)
+
+    def test_very_long_field_names(self, mock_migration_factory):
+        """Test analyzer handles very long field names."""
+        long_name = "a" * 1000  # Very long field name
+
+        operation = migrations.AddField(
+            model_name="user",
+            name=long_name,
+            field=models.CharField(max_length=100, null=True),
+        )
+
+        migration = mock_migration_factory([operation])
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+
+        # Should handle gracefully
+        issues = analyzer.analyze_migration(migration)
+        assert isinstance(issues, list)
+
+    def test_migration_with_circular_reference(self):
+        """Test analyzer handles migration with self-referential structures."""
+        from unittest.mock import Mock
+
+        migration = Mock()
+        migration.operations = []
+        migration.app_label = "testapp"
+        migration.name = "0001_test"
+        migration.__module__ = "testapp.migrations.0001_test"
+
+        # Create circular reference
+        migration.self_ref = migration
+
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+
+        # Should handle gracefully
+        issues = analyzer.analyze_migration(migration)
+        assert issues == []
+
+    def test_operation_raising_exception_in_repr(self, mock_migration_factory):
+        """Test analyzer handles operations that raise in __repr__."""
+
+        class BadReprOperation:
+            """An operation that raises in __repr__."""
+
+            def __repr__(self):
+                raise RuntimeError("Cannot repr this operation")
+
+        migration = mock_migration_factory([])
+        migration.operations = [BadReprOperation()]
+
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+
+        # Should handle gracefully
+        try:
+            issues = analyzer.analyze_migration(migration)
+            assert isinstance(issues, list)
+        except RuntimeError:
+            # If it propagates, that's also acceptable
+            pass

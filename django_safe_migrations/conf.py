@@ -55,24 +55,49 @@ logger = logging.getLogger("django_safe_migrations")
 # Each category maps to a list of rule IDs
 RULE_CATEGORIES: dict[str, list[str]] = {
     # Database-specific rules
-    "postgresql": ["SM005", "SM010", "SM011", "SM012", "SM013", "SM018"],
+    "postgresql": ["SM005", "SM010", "SM011", "SM012", "SM013", "SM018", "SM021"],
     "mysql": [],  # Currently no MySQL-specific rules
     "sqlite": [],  # Currently no SQLite-specific rules
     # Operation type categories
-    "indexes": ["SM010", "SM011", "SM018"],
-    "constraints": ["SM009", "SM011", "SM015", "SM017"],
+    "indexes": ["SM010", "SM011", "SM018", "SM021"],
+    "constraints": ["SM009", "SM011", "SM015", "SM017", "SM020", "SM021"],
     "destructive": ["SM002", "SM003", "SM009"],
+    "relations": ["SM005", "SM023", "SM025"],
     # Safety concern categories
-    "locking": ["SM004", "SM005", "SM010", "SM011", "SM013"],
+    "locking": ["SM004", "SM005", "SM010", "SM011", "SM013", "SM020", "SM021"],
     "data-loss": ["SM002", "SM003", "SM009"],
     "reversibility": ["SM007", "SM016", "SM017"],
-    "data-migrations": ["SM007", "SM008", "SM016", "SM017"],
+    "data-migrations": ["SM007", "SM008", "SM016", "SM017", "SM022", "SM026"],
+    "security": ["SM024"],
     # Severity-based categories
-    "high-risk": ["SM001", "SM002", "SM003", "SM010", "SM011", "SM018"],
-    "informational": ["SM006", "SM014", "SM019"],
+    "high-risk": [
+        "SM001",
+        "SM002",
+        "SM003",
+        "SM010",
+        "SM011",
+        "SM018",
+        "SM020",
+        "SM021",
+        "SM024",
+        "SM027",
+    ],
+    "informational": ["SM006", "SM014", "SM019", "SM023"],
     # Feature categories
     "naming": ["SM019"],
-    "schema-changes": ["SM001", "SM002", "SM003", "SM004", "SM006", "SM013", "SM014"],
+    "schema-changes": [
+        "SM001",
+        "SM002",
+        "SM003",
+        "SM004",
+        "SM006",
+        "SM013",
+        "SM014",
+        "SM020",
+        "SM021",
+        "SM023",
+    ],
+    "performance": ["SM022", "SM025", "SM026"],
 }
 
 # Default configuration values
@@ -91,6 +116,7 @@ DEFAULTS: dict[str, Any] = {
     ],
     "FAIL_ON_WARNING": False,
     "APP_RULES": {},  # Per-app rule configuration
+    "EXTRA_RULES": [],  # Custom rule class paths to load
 }
 
 
@@ -468,3 +494,213 @@ def get_rule_severity_for_app(
 
     # Fall back to global severity
     return get_rule_severity(rule_id, default)
+
+
+# -----------------------------------------------------------------------------
+# Configuration Validation
+# -----------------------------------------------------------------------------
+
+
+def _string_similarity(s1: str, s2: str) -> float:
+    """Calculate simple string similarity ratio.
+
+    Uses a basic algorithm comparing character overlap.
+    Returns a value between 0 (no similarity) and 1 (identical).
+    """
+    if not s1 or not s2:
+        return 0.0
+    s1_lower = s1.lower()
+    s2_lower = s2.lower()
+    if s1_lower == s2_lower:
+        return 1.0
+
+    # Check for prefix match
+    min_len = min(len(s1_lower), len(s2_lower))
+    prefix_match = 0
+    for i in range(min_len):
+        if s1_lower[i] == s2_lower[i]:
+            prefix_match += 1
+        else:
+            break
+
+    # Simple character overlap ratio
+    set1 = set(s1_lower)
+    set2 = set(s2_lower)
+    intersection = len(set1 & set2)
+    union = len(set1 | set2)
+
+    overlap_ratio = intersection / union if union else 0
+    prefix_ratio = prefix_match / max(len(s1_lower), len(s2_lower))
+
+    return (overlap_ratio + prefix_ratio) / 2
+
+
+def _find_similar(
+    name: str, valid_names: set[str], threshold: float = 0.5
+) -> str | None:
+    """Find the most similar valid name if above threshold.
+
+    Args:
+        name: The potentially invalid name.
+        valid_names: Set of valid names to compare against.
+        threshold: Minimum similarity score to suggest (0-1).
+
+    Returns:
+        The most similar valid name, or None if none above threshold.
+    """
+    best_match = None
+    best_score = threshold
+
+    for valid_name in valid_names:
+        score = _string_similarity(name, valid_name)
+        if score > best_score:
+            best_score = score
+            best_match = valid_name
+
+    return best_match
+
+
+def validate_config() -> list[str]:
+    """Validate the SAFE_MIGRATIONS configuration.
+
+    Checks for:
+    - Invalid rule IDs in DISABLED_RULES
+    - Invalid category names in DISABLED_CATEGORIES and ENABLED_CATEGORIES
+    - Invalid rule IDs in RULE_SEVERITY
+    - Invalid app configurations in APP_RULES
+
+    Returns:
+        A list of warning messages for any invalid configuration values.
+        Empty list if configuration is valid.
+    """
+    # Import here to avoid circular import
+    from django_safe_migrations.rules import get_all_rule_ids
+
+    warnings: list[str] = []
+    config = get_config()
+
+    valid_rule_ids = get_all_rule_ids()
+    valid_categories = set(RULE_CATEGORIES.keys())
+
+    # Validate global DISABLED_RULES
+    for rule_id in config.get("DISABLED_RULES", []):
+        if rule_id not in valid_rule_ids:
+            suggestion = _find_similar(rule_id, valid_rule_ids)
+            msg = f"Unknown rule ID in DISABLED_RULES: '{rule_id}'"
+            if suggestion:
+                msg += f". Did you mean '{suggestion}'?"
+            warnings.append(msg)
+
+    # Validate global DISABLED_CATEGORIES
+    for category in config.get("DISABLED_CATEGORIES", []):
+        if category not in valid_categories:
+            suggestion = _find_similar(category, valid_categories)
+            msg = f"Unknown category in DISABLED_CATEGORIES: '{category}'"
+            if suggestion:
+                msg += f". Did you mean '{suggestion}'?"
+            warnings.append(msg)
+
+    # Validate global ENABLED_CATEGORIES
+    for category in config.get("ENABLED_CATEGORIES", []):
+        if category not in valid_categories:
+            suggestion = _find_similar(category, valid_categories)
+            msg = f"Unknown category in ENABLED_CATEGORIES: '{category}'"
+            if suggestion:
+                msg += f". Did you mean '{suggestion}'?"
+            warnings.append(msg)
+
+    # Validate global RULE_SEVERITY
+    for rule_id in config.get("RULE_SEVERITY", {}).keys():
+        if rule_id not in valid_rule_ids:
+            suggestion = _find_similar(rule_id, valid_rule_ids)
+            msg = f"Unknown rule ID in RULE_SEVERITY: '{rule_id}'"
+            if suggestion:
+                msg += f". Did you mean '{suggestion}'?"
+            warnings.append(msg)
+
+    # Validate APP_RULES
+    for app_label, app_config in config.get("APP_RULES", {}).items():
+        if not isinstance(app_config, dict):
+            warnings.append(
+                f"APP_RULES['{app_label}'] should be a dictionary, "
+                f"got {type(app_config).__name__}"
+            )
+            continue
+
+        # Validate app-specific DISABLED_RULES
+        for rule_id in app_config.get("DISABLED_RULES", []):
+            if rule_id not in valid_rule_ids:
+                suggestion = _find_similar(rule_id, valid_rule_ids)
+                msg = (
+                    f"Unknown rule ID in APP_RULES['{app_label}']"
+                    f"['DISABLED_RULES']: '{rule_id}'"
+                )
+                if suggestion:
+                    msg += f". Did you mean '{suggestion}'?"
+                warnings.append(msg)
+
+        # Validate app-specific DISABLED_CATEGORIES
+        for category in app_config.get("DISABLED_CATEGORIES", []):
+            if category not in valid_categories:
+                suggestion = _find_similar(category, valid_categories)
+                msg = (
+                    f"Unknown category in APP_RULES['{app_label}']"
+                    f"['DISABLED_CATEGORIES']: '{category}'"
+                )
+                if suggestion:
+                    msg += f". Did you mean '{suggestion}'?"
+                warnings.append(msg)
+
+        # Validate app-specific ENABLED_CATEGORIES
+        for category in app_config.get("ENABLED_CATEGORIES", []):
+            if category not in valid_categories:
+                suggestion = _find_similar(category, valid_categories)
+                msg = (
+                    f"Unknown category in APP_RULES['{app_label}']"
+                    f"['ENABLED_CATEGORIES']: '{category}'"
+                )
+                if suggestion:
+                    msg += f". Did you mean '{suggestion}'?"
+                warnings.append(msg)
+
+        # Validate app-specific RULE_SEVERITY
+        for rule_id in app_config.get("RULE_SEVERITY", {}).keys():
+            if rule_id not in valid_rule_ids:
+                suggestion = _find_similar(rule_id, valid_rule_ids)
+                msg = (
+                    f"Unknown rule ID in APP_RULES['{app_label}']"
+                    f"['RULE_SEVERITY']: '{rule_id}'"
+                )
+                if suggestion:
+                    msg += f". Did you mean '{suggestion}'?"
+                warnings.append(msg)
+
+    return warnings
+
+
+def log_config_warnings() -> None:
+    """Validate configuration and log any warnings.
+
+    This function should be called during startup to alert users
+    of configuration issues.
+    """
+    warnings = validate_config()
+    for warning in warnings:
+        logger.warning("Configuration warning: %s", warning)
+
+
+# -----------------------------------------------------------------------------
+# Custom Rule Plugin System
+# -----------------------------------------------------------------------------
+
+
+def get_extra_rules() -> list[str]:
+    """Get extra rule class paths from configuration.
+
+    Returns:
+        A list of dotted paths to custom rule classes.
+        Example: ["myproject.rules.CustomRule", "another.module.MyRule"]
+    """
+    config = get_config()
+    extra_rules: list[str] = config.get("EXTRA_RULES", [])
+    return extra_rules

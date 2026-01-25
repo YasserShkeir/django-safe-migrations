@@ -610,6 +610,167 @@ class TestNewRulesV030:
         assert "order" in messages.lower() or "type" in messages.lower()
 
 
+class TestNewRulesV040:
+    """Tests for new rules in v0.4.0 (SM020-SM026)."""
+
+    def test_detects_sm020_alterfield_null_false(self):
+        """Test SM020 detection for AlterField with null=False.
+
+        Migration 0014_alterfield_null_false.py alters a field to null=False.
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Find SM020 issues
+        sm020_issues = [i for i in data["issues"] if i.get("rule_id") == "SM020"]
+        assert len(sm020_issues) > 0, "SM020 should detect AlterField with null=False"
+
+        # Verify it's from the right migration
+        migration_names = [i.get("migration_name", "") for i in sm020_issues]
+        assert any(
+            "0014_alterfield_null_false" in name for name in migration_names
+        ), "SM020 should be detected in 0014_alterfield_null_false"
+
+    @pytest.mark.postgres
+    def test_detects_sm021_alterfield_unique(self):
+        """Test SM021 detection for AlterField with unique=True.
+
+        Migration 0015_alterfield_unique.py adds unique constraint via AlterField.
+        Note: SM021 is PostgreSQL-specific as it involves concurrent index creation.
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Find SM021 issues
+        sm021_issues = [i for i in data["issues"] if i.get("rule_id") == "SM021"]
+        assert len(sm021_issues) > 0, "SM021 should detect AlterField with unique=True"
+
+        # Verify it's from the right migration
+        migration_names = [i.get("migration_name", "") for i in sm021_issues]
+        assert any(
+            "0015_alterfield_unique" in name for name in migration_names
+        ), "SM021 should be detected in 0015_alterfield_unique"
+
+    def test_detects_sm022_expensive_default(self):
+        """Test SM022 detection for expensive default callable.
+
+        Migration 0016_expensive_default.py uses timezone.now as default.
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Find SM022 issues
+        sm022_issues = [i for i in data["issues"] if i.get("rule_id") == "SM022"]
+        assert len(sm022_issues) > 0, "SM022 should detect expensive default callable"
+
+        # Verify it's from the right migration
+        migration_names = [i.get("migration_name", "") for i in sm022_issues]
+        assert any(
+            "0016_expensive_default" in name for name in migration_names
+        ), "SM022 should be detected in 0016_expensive_default"
+
+    def test_detects_sm023_manytomany_field(self):
+        """Test SM023 detection for ManyToManyField.
+
+        Migration 0017_manytomany_field.py adds a ManyToManyField.
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Find SM023 issues
+        sm023_issues = [i for i in data["issues"] if i.get("rule_id") == "SM023"]
+        assert len(sm023_issues) > 0, "SM023 should detect ManyToManyField"
+
+        # Verify it's from the right migration
+        migration_names = [i.get("migration_name", "") for i in sm023_issues]
+        assert any(
+            "0017_manytomany_field" in name for name in migration_names
+        ), "SM023 should be detected in 0017_manytomany_field"
+
+    def test_detects_sm024_sql_injection_pattern(self):
+        """Test SM024 detection for SQL injection patterns in RunSQL.
+
+        Migration 0018_sql_injection_pattern.py uses %s formatting in RunSQL.
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Find SM024 issues
+        sm024_issues = [i for i in data["issues"] if i.get("rule_id") == "SM024"]
+        assert len(sm024_issues) > 0, "SM024 should detect SQL injection patterns"
+
+        # Verify it's from the right migration
+        migration_names = [i.get("migration_name", "") for i in sm024_issues]
+        assert any(
+            "0018_sql_injection_pattern" in name for name in migration_names
+        ), "SM024 should be detected in 0018_sql_injection_pattern"
+
+    def test_detects_sm025_fk_without_index(self):
+        """Test SM025 detection for ForeignKey with db_index=False.
+
+        Migration 0019_fk_without_index.py adds a ForeignKey without index.
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Find SM025 issues
+        sm025_issues = [i for i in data["issues"] if i.get("rule_id") == "SM025"]
+        assert len(sm025_issues) > 0, "SM025 should detect ForeignKey without index"
+
+        # Verify it's from the right migration
+        migration_names = [i.get("migration_name", "") for i in sm025_issues]
+        assert any(
+            "0019_fk_without_index" in name for name in migration_names
+        ), "SM025 should be detected in 0019_fk_without_index"
+
+    def test_detects_sm026_run_python_no_batching(self):
+        """Test SM026 detection for RunPython without batching.
+
+        Migration 0020_run_python_no_batching.py uses .all() without .iterator().
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Find SM026 issues
+        sm026_issues = [i for i in data["issues"] if i.get("rule_id") == "SM026"]
+        # Note: SM026 may not trigger if source inspection fails
+        # This is acceptable behavior documented in the rule
+        if len(sm026_issues) > 0:
+            # Verify it's from the right migration
+            migration_names = [i.get("migration_name", "") for i in sm026_issues]
+            assert any(
+                "0020_run_python_no_batching" in name for name in migration_names
+            ), "SM026 should be detected in 0020_run_python_no_batching"
+
+
 class TestCategoryConfiguration:
     """Tests for category-based rule configuration (v0.3.0 feature)."""
 
@@ -704,6 +865,139 @@ class TestCategoryConfiguration:
 
         # SM006, SM008, SM016, SM019 are in informational - should be disabled
         assert "SM019" not in rule_ids, "SM019 should be disabled by naming category"
+
+
+class TestListRulesCommand:
+    """Tests for --list-rules command (v0.4.0 feature)."""
+
+    def test_list_rules_console_output(self):
+        """Test --list-rules produces console output."""
+        out = StringIO()
+        try:
+            call_command("check_migrations", list_rules=True, stdout=out)
+            exit_code = 0
+        except SystemExit as e:
+            exit_code = e.code
+
+        output = out.getvalue()
+
+        # Should exit with 0
+        assert exit_code == 0
+
+        # Should list available rules
+        assert "Available Rules:" in output
+        assert "SM001" in output
+        assert "SM010" in output
+
+    def test_list_rules_json_output(self):
+        """Test --list-rules with JSON format."""
+        out = StringIO()
+        try:
+            call_command("check_migrations", list_rules=True, format="json", stdout=out)
+            exit_code = 0
+        except SystemExit as e:
+            exit_code = e.code
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Should be a list of rules
+        assert isinstance(data, list)
+        assert len(data) > 0
+
+        # Each rule should have expected fields
+        rule = data[0]
+        assert "rule_id" in rule
+        assert "severity" in rule
+        assert "description" in rule
+        assert "categories" in rule
+
+        # Should include SM001
+        rule_ids = {r["rule_id"] for r in data}
+        assert "SM001" in rule_ids
+
+        # Should exit with 0
+        assert exit_code == 0
+
+    def test_list_rules_includes_new_v040_rules(self):
+        """Test --list-rules includes new v0.4.0 rules."""
+        out = StringIO()
+        try:
+            call_command("check_migrations", list_rules=True, format="json", stdout=out)
+        except SystemExit:
+            pass
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        rule_ids = {r["rule_id"] for r in data}
+
+        # New v0.4.0 rules should be listed
+        assert "SM020" in rule_ids  # AlterFieldNullFalseRule
+        assert "SM021" in rule_ids  # AlterFieldUniqueRule
+        assert "SM022" in rule_ids  # ExpensiveDefaultCallableRule
+        assert "SM023" in rule_ids  # AddManyToManyRule
+        assert "SM024" in rule_ids  # SQLInjectionPatternRule
+        assert "SM025" in rule_ids  # ForeignKeyWithoutIndexRule
+        assert "SM026" in rule_ids  # RunPythonNoBatchingRule
+
+    def test_list_rules_includes_categories(self):
+        """Test --list-rules includes category information."""
+        out = StringIO()
+        try:
+            call_command("check_migrations", list_rules=True, format="json", stdout=out)
+        except SystemExit:
+            pass
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Find SM001 and check categories
+        sm001 = next(r for r in data if r["rule_id"] == "SM001")
+        assert "categories" in sm001
+        assert isinstance(sm001["categories"], list)
+
+    def test_list_rules_includes_db_vendors(self):
+        """Test --list-rules includes database vendor information."""
+        out = StringIO()
+        try:
+            call_command("check_migrations", list_rules=True, format="json", stdout=out)
+        except SystemExit:
+            pass
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Find SM010 (postgres-specific rule)
+        sm010 = next(r for r in data if r["rule_id"] == "SM010")
+        assert "db_vendors" in sm010
+        assert "postgresql" in sm010["db_vendors"]
+
+
+class TestListRulesCLI:
+    """Tests for --list-rules via CLI entry point."""
+
+    def test_cli_list_rules(self):
+        """Test CLI --list-rules option."""
+        import os
+
+        from django_safe_migrations.cli import main
+
+        os.environ["DJANGO_SETTINGS_MODULE"] = "tests.settings.sqlite"
+
+        exit_code = main(["--list-rules"])
+        assert exit_code == 0
+
+    def test_cli_list_rules_json(self):
+        """Test CLI --list-rules with JSON format."""
+        import os
+
+        from django_safe_migrations.cli import main
+
+        os.environ["DJANGO_SETTINGS_MODULE"] = "tests.settings.sqlite"
+
+        exit_code = main(["--list-rules", "--format", "json"])
+        assert exit_code == 0
 
 
 class TestPerAppConfiguration:

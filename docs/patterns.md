@@ -462,16 +462,336 @@ class Migration(migrations.Migration):
 
 ______________________________________________________________________
 
+## Changing null=True to null=False
+
+### The Problem
+
+Changing a field from nullable to NOT NULL requires PostgreSQL to scan all rows
+to verify no NULL values exist. If NULL values exist, the migration fails.
+
+### Unsafe Pattern
+
+```python
+# ❌ Will fail if any NULL values exist
+migrations.AlterField(
+    model_name='user',
+    name='nickname',
+    field=models.CharField(max_length=100, null=False),  # Was null=True
+)
+```
+
+### Safe Pattern
+
+```python
+# Migration 1: Backfill NULL values
+def backfill_nicknames(apps, schema_editor):
+    User = apps.get_model('myapp', 'User')
+    User.objects.filter(nickname__isnull=True).update(nickname='')
+
+migrations.RunPython(backfill_nicknames, migrations.RunPython.noop)
+```
+
+```python
+# Migration 2: Now safe to add NOT NULL
+migrations.AlterField(
+    model_name='user',
+    name='nickname',
+    field=models.CharField(max_length=100, null=False, default=''),
+)
+```
+
+For large tables on PostgreSQL, use the NOT VALID pattern:
+
+```python
+# Add constraint as NOT VALID
+migrations.RunSQL(
+    sql='''
+        ALTER TABLE myapp_user
+        ADD CONSTRAINT nickname_not_null
+        CHECK (nickname IS NOT NULL)
+        NOT VALID;
+    ''',
+    reverse_sql='ALTER TABLE myapp_user DROP CONSTRAINT nickname_not_null;',
+)
+```
+
+```python
+# Validate constraint (can run while table is in use)
+migrations.RunSQL(
+    sql='ALTER TABLE myapp_user VALIDATE CONSTRAINT nickname_not_null;',
+    reverse_sql=migrations.RunSQL.noop,
+)
+```
+
+```python
+# Now add the actual NOT NULL (instant since constraint already validated)
+migrations.RunSQL(
+    sql='ALTER TABLE myapp_user ALTER COLUMN nickname SET NOT NULL;',
+    reverse_sql='ALTER TABLE myapp_user ALTER COLUMN nickname DROP NOT NULL;',
+)
+```
+
+______________________________________________________________________
+
+## Adding unique=True via AlterField
+
+### The Problem
+
+Adding `unique=True` via AlterField creates a unique index while holding a lock,
+blocking writes for the duration of index creation.
+
+### Unsafe Pattern
+
+```python
+# ❌ Locks table during index creation
+migrations.AlterField(
+    model_name='user',
+    name='email',
+    field=models.EmailField(unique=True),
+)
+```
+
+### Safe Pattern (PostgreSQL)
+
+```python
+from django.contrib.postgres.operations import AddIndexConcurrently
+
+class Migration(migrations.Migration):
+    atomic = False  # Required for CONCURRENTLY
+
+    operations = [
+        # Step 1: Create unique index concurrently
+        AddIndexConcurrently(
+            model_name='user',
+            index=models.Index(
+                fields=['email'],
+                name='user_email_uniq_idx',
+            ),
+        ),
+    ]
+```
+
+```python
+# Step 2: Add unique constraint using the index
+migrations.RunSQL(
+    sql='''
+        ALTER TABLE myapp_user
+        ADD CONSTRAINT user_email_unique
+        UNIQUE USING INDEX user_email_uniq_idx;
+    ''',
+    reverse_sql='ALTER TABLE myapp_user DROP CONSTRAINT user_email_unique;',
+)
+```
+
+______________________________________________________________________
+
+## Adding ManyToMany Fields
+
+### The Problem
+
+Adding a ManyToManyField creates a new junction table. While generally safe,
+it's good to be aware of what's happening.
+
+### Pattern
+
+```python
+# This creates a new table: myapp_article_tags
+migrations.AddField(
+    model_name='article',
+    name='tags',
+    field=models.ManyToManyField('tags.Tag', blank=True),
+)
+```
+
+### Considerations
+
+- Junction table is empty initially (safe)
+- No locks on existing tables
+- May want to add indexes on the junction table for performance
+
+```python
+# Optional: Add index for reverse lookups
+migrations.RunSQL(
+    sql='''
+        CREATE INDEX CONCURRENTLY myapp_article_tags_tag_idx
+        ON myapp_article_tags(tag_id);
+    ''',
+    reverse_sql='DROP INDEX myapp_article_tags_tag_idx;',
+)
+```
+
+______________________________________________________________________
+
+## ForeignKey Without Index
+
+### The Problem
+
+By default, Django creates an index on ForeignKey fields. If you disable this
+with `db_index=False`, JOIN queries can become very slow on large tables.
+
+### Pattern to Avoid
+
+```python
+# ❌ No index means slow JOINs
+migrations.AddField(
+    model_name='order',
+    name='customer',
+    field=models.ForeignKey(
+        'customers.Customer',
+        on_delete=models.CASCADE,
+        db_index=False,  # Don't do this unless you have a good reason
+    ),
+)
+```
+
+### When db_index=False is OK
+
+- The table will always be small
+- You're creating a covering index that includes this field
+- The field is never used in WHERE or JOIN clauses
+
+```python
+# ✅ OK if you have a covering index
+migrations.AddField(
+    model_name='order',
+    name='customer',
+    field=models.ForeignKey(
+        'customers.Customer',
+        on_delete=models.CASCADE,
+        db_index=False,
+    ),
+)
+
+# Add a covering index instead
+migrations.AddIndex(
+    model_name='order',
+    index=models.Index(
+        fields=['customer', 'created_at'],
+        name='order_customer_created_idx',
+    ),
+)
+```
+
+______________________________________________________________________
+
+## Expensive Default Callables
+
+### The Problem
+
+Using callables like `timezone.now` as defaults means Django calls the function
+once per row during backfill, which can be slow for large tables.
+
+### Pattern to Consider
+
+```python
+# This is fine for new tables
+migrations.AddField(
+    model_name='user',
+    name='created_at',
+    field=models.DateTimeField(default=timezone.now),
+)
+```
+
+### For Large Existing Tables
+
+```python
+# Migration 1: Add with static default
+migrations.AddField(
+    model_name='user',
+    name='last_login',
+    field=models.DateTimeField(null=True),  # Nullable initially
+)
+```
+
+```python
+# Migration 2: Backfill in batches with explicit value
+def backfill_last_login(apps, schema_editor):
+    from django.utils import timezone
+    User = apps.get_model('myapp', 'User')
+    now = timezone.now()  # Single value for all rows
+    batch_size = 10000
+
+    while User.objects.filter(last_login__isnull=True).exists():
+        ids = list(
+            User.objects.filter(last_login__isnull=True)
+            .values_list('id', flat=True)[:batch_size]
+        )
+        User.objects.filter(id__in=ids).update(last_login=now)
+
+migrations.RunPython(backfill_last_login, migrations.RunPython.noop)
+```
+
+______________________________________________________________________
+
+## Data Migrations with Large Tables
+
+### The Problem
+
+Using `.all()` without `.iterator()` loads the entire table into memory.
+
+### Unsafe Pattern
+
+```python
+# ❌ Loads all rows into memory at once
+def migrate_data(apps, schema_editor):
+    User = apps.get_model('myapp', 'User')
+    for user in User.objects.all():  # OOM on large tables!
+        user.name = user.name.title()
+        user.save()
+```
+
+### Safe Pattern
+
+```python
+# ✅ Process in batches
+def migrate_data(apps, schema_editor):
+    User = apps.get_model('myapp', 'User')
+    batch_size = 1000
+
+    while True:
+        batch = list(
+            User.objects.filter(name_migrated=False)[:batch_size]
+        )
+        if not batch:
+            break
+
+        for user in batch:
+            user.name = user.name.title()
+            user.name_migrated = True
+
+        User.objects.bulk_update(batch, ['name', 'name_migrated'])
+```
+
+Or use `.iterator()`:
+
+```python
+# ✅ Uses server-side cursor
+def migrate_data(apps, schema_editor):
+    User = apps.get_model('myapp', 'User')
+    for user in User.objects.all().iterator(chunk_size=1000):
+        # Process one at a time, memory efficient
+        user.name = user.name.title()
+        user.save(update_fields=['name'])
+```
+
+______________________________________________________________________
+
 ## Summary Table
 
-| Operation             | Risk               | Safe Pattern                           |
-| --------------------- | ------------------ | -------------------------------------- |
-| Add NOT NULL column   | Table lock         | Add nullable → backfill → add NOT NULL |
-| Create index          | Write lock         | `AddIndexConcurrently` (PostgreSQL)    |
-| Add unique constraint | Table scan + lock  | Create unique index first              |
-| Add foreign key       | Validates all rows | `NOT VALID` then `VALIDATE`            |
-| Remove column         | Code breaks        | Remove code first, then column         |
-| Rename column         | Code breaks        | Add new → migrate data → remove old    |
-| Change column type    | Table rewrite      | Add new column → migrate → remove old  |
-| Add CHECK constraint  | Validates all rows | `NOT VALID` then `VALIDATE`            |
-| Add enum value        | Transaction fails  | `atomic = False`                       |
+| Operation              | Risk                 | Safe Pattern                           |
+| ---------------------- | -------------------- | -------------------------------------- |
+| Add NOT NULL column    | Table lock           | Add nullable → backfill → add NOT NULL |
+| Create index           | Write lock           | `AddIndexConcurrently` (PostgreSQL)    |
+| Add unique constraint  | Table scan + lock    | Create unique index first              |
+| Add foreign key        | Validates all rows   | `NOT VALID` then `VALIDATE`            |
+| Remove column          | Code breaks          | Remove code first, then column         |
+| Rename column          | Code breaks          | Add new → migrate data → remove old    |
+| Change column type     | Table rewrite        | Add new column → migrate → remove old  |
+| Add CHECK constraint   | Validates all rows   | `NOT VALID` then `VALIDATE`            |
+| Add enum value         | Transaction fails    | `atomic = False`                       |
+| null=True → null=False | Scan + possible fail | Backfill NULLs first                   |
+| Add unique via Alter   | Table lock           | Create index concurrently first        |
+| Add ManyToMany         | Creates new table    | Generally safe, consider indexes       |
+| FK without index       | Slow JOINs           | Keep default index or add covering     |
+| Expensive default      | Slow backfill        | Use static default, backfill manually  |
+| Large data migration   | Memory issues        | Use `.iterator()` or batch processing  |

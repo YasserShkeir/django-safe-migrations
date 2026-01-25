@@ -122,7 +122,7 @@ def get_suppressions_from_file(file_path: str) -> dict[int, Suppression]:
                 suppression = parse_suppression_comment(line, line_number)
                 if suppression:
                     suppressions[line_number] = suppression
-    except (OSError, IOError):
+    except OSError:
         pass
 
     return suppressions
