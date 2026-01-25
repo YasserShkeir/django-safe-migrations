@@ -42,6 +42,16 @@ Django Safe Migrations analyzes your Django migrations and warns you about opera
 | SM015   | `alter_unique_together`            | WARNING  | Deprecated in favor of UniqueConstraint                |
 | SM016   | `run_python_no_reverse`            | INFO     | RunPython without reverse_code is not reversible       |
 | SM017   | `add_check_constraint`             | WARNING  | Check constraint validates all existing rows           |
+| SM018   | `concurrent_in_atomic_migration`   | ERROR    | Concurrent index operations require atomic=False       |
+| SM019   | `reserved_keyword_column`          | INFO     | Column name is a reserved SQL keyword                  |
+| SM020   | `alter_field_null_false`           | ERROR    | AlterField null=False without data backfill            |
+| SM021   | `alter_field_unique`               | ERROR    | Adding UNIQUE via AlterField on existing data          |
+| SM022   | `expensive_default_callable`       | WARNING  | Default value uses expensive callable (e.g., now())    |
+| SM023   | `add_many_to_many`                 | INFO     | ManyToMany creates junction table (potential locks)    |
+| SM024   | `sql_injection_pattern`            | ERROR    | SQL injection patterns detected in RunSQL              |
+| SM025   | `fk_without_index`                 | WARNING  | Foreign key without db_index on large tables           |
+| SM026   | `run_python_no_batching`           | WARNING  | RunPython using .all() without batching                |
+| SM027   | `missing_merge_migration`          | ERROR    | Multiple leaf migrations need merge migration          |
 
 ## Installation
 

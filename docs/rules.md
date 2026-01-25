@@ -893,3 +893,539 @@ The `NOT VALID` option adds the constraint without validating existing rows. The
 - Only takes a `SHARE UPDATE EXCLUSIVE` lock (allows reads/writes)
 - Validates rows incrementally
 - Can be run during normal operation
+
+______________________________________________________________________
+
+## SM018: Concurrent Index in Atomic Migration
+
+**Severity:** ERROR
+
+**Databases:** PostgreSQL
+
+### What it detects
+
+Using `AddIndexConcurrently` or `RemoveIndexConcurrently` in a migration without
+`atomic = False`:
+
+```python
+# ⚠️ ERROR
+class Migration(migrations.Migration):
+    # Missing atomic = False!
+    operations = [
+        AddIndexConcurrently(
+            model_name='order',
+            index=models.Index(fields=['status'], name='order_status_idx'),
+        ),
+    ]
+```
+
+### Why it's dangerous
+
+PostgreSQL's `CREATE INDEX CONCURRENTLY` cannot run inside a transaction. If you
+forget to set `atomic = False`, the migration will fail at runtime with:
+
+```
+CREATE INDEX CONCURRENTLY cannot run inside a transaction block
+```
+
+### Safe pattern
+
+```python
+# ✅ SAFE: Set atomic = False
+class Migration(migrations.Migration):
+    atomic = False
+
+    operations = [
+        AddIndexConcurrently(
+            model_name='order',
+            index=models.Index(fields=['status'], name='order_status_idx'),
+        ),
+    ]
+```
+
+______________________________________________________________________
+
+## SM019: Reserved Keyword Column Name
+
+**Severity:** INFO
+
+**Databases:** All
+
+### What it detects
+
+Using SQL reserved keywords as column names:
+
+```python
+# ⚠️ INFO
+migrations.AddField(
+    model_name='product',
+    name='order',  # 'order' is a SQL keyword
+    field=models.IntegerField(),
+)
+```
+
+### Why it's problematic
+
+While Django quotes identifiers, reserved keywords can cause issues with:
+
+- Raw SQL queries
+- Database tools and GUIs
+- Third-party ORMs or reporting tools
+- Future SQL standard compatibility
+
+Common problematic names: `order`, `user`, `group`, `select`, `table`, `index`,
+`key`, `primary`, `foreign`, `check`, `constraint`.
+
+### Safe pattern
+
+```python
+# ✅ SAFE: Use descriptive, non-reserved names
+migrations.AddField(
+    model_name='product',
+    name='sort_order',  # Descriptive and not reserved
+    field=models.IntegerField(),
+)
+```
+
+______________________________________________________________________
+
+## SM020: AlterField to NOT NULL Without Backfill
+
+**Severity:** ERROR
+
+**Databases:** All
+
+### What it detects
+
+Changing a field from `null=True` to `null=False` without ensuring existing NULL
+values are handled:
+
+```python
+# ⚠️ ERROR
+migrations.AlterField(
+    model_name='user',
+    name='email',
+    field=models.CharField(max_length=255, null=False),  # Was null=True
+)
+```
+
+### Why it's dangerous
+
+If the table contains rows with NULL values in this column, the migration will
+fail:
+
+```
+IntegrityError: column "email" contains null values
+```
+
+Even worse, in some databases this operation locks the table while checking all
+rows.
+
+### Safe pattern
+
+```python
+# ✅ SAFE: Backfill NULLs first, then alter
+
+# Migration 1: Backfill NULL values
+def backfill_emails(apps, schema_editor):
+    User = apps.get_model('myapp', 'User')
+    User.objects.filter(email__isnull=True).update(email='unknown@example.com')
+
+migrations.RunPython(backfill_emails, migrations.RunPython.noop)
+
+# Migration 2: Now safe to make NOT NULL
+migrations.AlterField(
+    model_name='user',
+    name='email',
+    field=models.CharField(max_length=255, null=False),
+)
+```
+
+______________________________________________________________________
+
+## SM021: Adding UNIQUE via AlterField
+
+**Severity:** ERROR
+
+**Databases:** All
+
+### What it detects
+
+Adding a UNIQUE constraint via `AlterField`:
+
+```python
+# ⚠️ ERROR
+migrations.AlterField(
+    model_name='user',
+    name='email',
+    field=models.CharField(max_length=255, unique=True),  # Adding unique=True
+)
+```
+
+### Why it's dangerous
+
+1. Requires scanning ALL rows to check for duplicates
+2. Locks the table during the check
+3. Fails if duplicates exist
+4. On large tables, can cause significant downtime
+
+### Safe pattern
+
+```python
+# ✅ SAFE: Use concurrent index (PostgreSQL)
+
+# Migration 1: Create unique index concurrently
+class Migration(migrations.Migration):
+    atomic = False
+
+    operations = [
+        AddIndexConcurrently(
+            model_name='user',
+            index=models.Index(
+                fields=['email'],
+                name='user_email_unique_idx',
+                condition=None,
+            ),
+        ),
+    ]
+
+# Migration 2: Add constraint using the index
+migrations.AddConstraint(
+    model_name='user',
+    constraint=models.UniqueConstraint(
+        fields=['email'],
+        name='user_email_unique',
+    ),
+)
+```
+
+______________________________________________________________________
+
+## SM022: Expensive Default Callable
+
+**Severity:** WARNING
+
+**Databases:** All
+
+### What it detects
+
+Using potentially expensive callables as field defaults:
+
+```python
+# ⚠️ WARNING
+migrations.AddField(
+    model_name='event',
+    name='created_at',
+    field=models.DateTimeField(default=datetime.now),  # Called for each row!
+)
+```
+
+### Why it's problematic
+
+When adding a column with a default, some databases:
+
+1. Call the default function for EVERY existing row
+2. For `datetime.now()`, this means N function calls
+3. For `uuid.uuid4()`, this generates N UUIDs synchronously
+4. Can significantly slow down migrations on large tables
+
+### Safe pattern
+
+```python
+# ✅ SAFE: Use database-level defaults or backfill
+
+# Option 1: Use auto_now_add (handled at ORM level)
+field=models.DateTimeField(auto_now_add=True, null=True)
+
+# Option 2: Use database default
+migrations.RunSQL(
+    sql="ALTER TABLE myapp_event ADD COLUMN created_at TIMESTAMP DEFAULT NOW()",
+    reverse_sql="ALTER TABLE myapp_event DROP COLUMN created_at",
+)
+
+# Option 3: Add nullable, backfill, then make required
+# Migration 1: Add as nullable
+migrations.AddField(
+    model_name='event',
+    name='created_at',
+    field=models.DateTimeField(null=True),
+)
+# Migration 2: Backfill with batch updates
+# Migration 3: Make NOT NULL
+```
+
+______________________________________________________________________
+
+## SM023: Adding ManyToMany Field
+
+**Severity:** INFO
+
+**Databases:** All
+
+### What it detects
+
+Adding a ManyToMany field:
+
+```python
+# ⚠️ INFO
+migrations.AddField(
+    model_name='article',
+    name='tags',
+    field=models.ManyToManyField(to='blog.Tag'),
+)
+```
+
+### Why it's notable
+
+Adding a ManyToMany field:
+
+1. Creates a new junction table (e.g., `article_tags`)
+2. The table creation itself is generally safe
+3. However, be aware of subsequent operations that populate this table
+4. Bulk inserts into the junction table can be slow
+
+This is INFO severity because it's usually safe, but you should be aware of the
+implications.
+
+### Best practices
+
+```python
+# ✅ Consider: Add the field, but populate data carefully
+
+# The migration (safe):
+migrations.AddField(
+    model_name='article',
+    name='tags',
+    field=models.ManyToManyField(to='blog.Tag'),
+)
+
+# When populating, use bulk operations:
+def populate_tags(apps, schema_editor):
+    Article = apps.get_model('blog', 'Article')
+    Tag = apps.get_model('blog', 'Tag')
+    through_model = Article.tags.through
+
+    # Bulk create relationships
+    relations = [
+        through_model(article_id=a.id, tag_id=t.id)
+        for a, t in compute_relationships()
+    ]
+    through_model.objects.bulk_create(relations, batch_size=1000)
+```
+
+______________________________________________________________________
+
+## SM024: SQL Injection Pattern in RunSQL
+
+**Severity:** ERROR
+
+**Databases:** All
+
+### What it detects
+
+Potential SQL injection patterns in `RunSQL` operations:
+
+```python
+# ⚠️ ERROR
+table_name = "users"  # Could come from untrusted source
+migrations.RunSQL(
+    sql=f"DROP TABLE {table_name}",  # String formatting = injection risk
+)
+
+# Also detected:
+migrations.RunSQL(
+    sql="SELECT * FROM users WHERE id = %s" % user_id,  # % formatting
+)
+```
+
+### Why it's dangerous
+
+While migrations typically run in trusted environments, SQL injection patterns
+in migrations can:
+
+1. Be accidentally triggered with wrong data
+2. Set bad precedents for application code
+3. Cause issues if migration code is reused
+4. Be exploited if migration parameters come from external sources
+
+### Safe pattern
+
+```python
+# ✅ SAFE: Use hardcoded SQL or Django's schema editor
+
+# Option 1: Hardcoded SQL (when you control the values)
+migrations.RunSQL(
+    sql="CREATE INDEX idx_users_email ON users(email)",
+    reverse_sql="DROP INDEX idx_users_email",
+)
+
+# Option 2: Use schema editor for dynamic operations
+def create_index(apps, schema_editor):
+    model = apps.get_model('myapp', 'User')
+    schema_editor.add_index(model, models.Index(fields=['email']))
+
+migrations.RunPython(create_index)
+```
+
+______________________________________________________________________
+
+## SM025: Foreign Key Without Index
+
+**Severity:** WARNING
+
+**Databases:** All (primarily affects MySQL)
+
+### What it detects
+
+Adding a ForeignKey without `db_index=True` (or when `db_index=False`):
+
+```python
+# ⚠️ WARNING
+migrations.AddField(
+    model_name='order',
+    name='customer',
+    field=models.ForeignKey(
+        to='myapp.Customer',
+        on_delete=models.CASCADE,
+        db_index=False,  # No index!
+    ),
+)
+```
+
+### Why it's problematic
+
+Foreign keys without indexes cause:
+
+1. Slow JOIN operations
+2. Slow CASCADE deletes (must scan for related rows)
+3. Slow reverse relation queries (`customer.order_set.all()`)
+4. Lock contention on parent table deletes
+
+Note: Django creates indexes for ForeignKey by default (`db_index=True`). This
+rule catches when you explicitly disable it.
+
+### Safe pattern
+
+```python
+# ✅ SAFE: Keep the default index (or explicitly enable)
+migrations.AddField(
+    model_name='order',
+    name='customer',
+    field=models.ForeignKey(
+        to='myapp.Customer',
+        on_delete=models.CASCADE,
+        # db_index=True is the default
+    ),
+)
+```
+
+______________________________________________________________________
+
+## SM026: RunPython Without Batching
+
+**Severity:** WARNING
+
+**Databases:** All
+
+### What it detects
+
+`RunPython` operations that use `.all()` without batching:
+
+```python
+# ⚠️ WARNING
+def migrate_data(apps, schema_editor):
+    User = apps.get_model('myapp', 'User')
+    for user in User.objects.all():  # Loads ALL users into memory!
+        user.name = user.name.title()
+        user.save()
+
+migrations.RunPython(migrate_data)
+```
+
+### Why it's dangerous
+
+Loading all rows into memory:
+
+1. Can exhaust server memory on large tables
+2. Creates long-running transactions
+3. Holds locks for extended periods
+4. May timeout or be killed by the database
+
+### Safe pattern
+
+```python
+# ✅ SAFE: Use batching with iterator() or chunked updates
+
+def migrate_data(apps, schema_editor):
+    User = apps.get_model('myapp', 'User')
+
+    # Option 1: Use iterator with chunk_size
+    for user in User.objects.iterator(chunk_size=1000):
+        user.name = user.name.title()
+        user.save()
+
+    # Option 2: Bulk update in batches
+    batch_size = 1000
+    while True:
+        batch = list(User.objects.filter(
+            migrated=False
+        )[:batch_size])
+        if not batch:
+            break
+        for user in batch:
+            user.name = user.name.title()
+            user.migrated = True
+        User.objects.bulk_update(batch, ['name', 'migrated'])
+
+migrations.RunPython(migrate_data)
+```
+
+______________________________________________________________________
+
+## SM027: Missing Merge Migration
+
+**Severity:** ERROR
+
+**Databases:** All
+
+### What it detects
+
+Multiple leaf migrations (migrations with no children) in the same app,
+indicating a need for a merge migration:
+
+```text
+App 'myapp' has multiple leaf migrations:
+  - 0005_add_field_a (from branch A)
+  - 0005_add_field_b (from branch B)
+```
+
+### Why it's dangerous
+
+Multiple leaf migrations cause:
+
+1. Ambiguous migration state
+2. Potential conflicts when both branches are applied
+3. `makemigrations` confusion
+4. CI/CD pipeline failures
+
+This typically happens when two developers create migrations on separate
+branches.
+
+### Safe pattern
+
+```bash
+# ✅ SAFE: Create a merge migration
+python manage.py makemigrations --merge myapp
+```
+
+This creates a merge migration that depends on both leaves:
+
+```python
+# 0006_merge_20240115_1234.py
+class Migration(migrations.Migration):
+    dependencies = [
+        ('myapp', '0005_add_field_a'),
+        ('myapp', '0005_add_field_b'),
+    ]
+    operations = []
+```
