@@ -51,6 +51,59 @@ def setup_django() -> bool:
         return False
 
 
+def list_rules(output_format: str = "console") -> int:
+    """List all available rules.
+
+    Lists both built-in rules and any custom rules configured via EXTRA_RULES.
+
+    Args:
+        output_format: Output format ('console' or 'json').
+
+    Returns:
+        Exit code (always 0).
+    """
+    import json as json_module
+
+    from django_safe_migrations.conf import get_category_for_rule
+    from django_safe_migrations.rules import ALL_RULES, _load_extra_rules
+
+    # Collect both built-in and custom rules
+    all_rule_classes = list(ALL_RULES) + _load_extra_rules()
+
+    rules_data = []
+    for rule_cls in all_rule_classes:
+        rule = rule_cls()
+        categories = get_category_for_rule(rule.rule_id)
+        db_vendors = rule.db_vendors if rule.db_vendors else ["all"]
+
+        rules_data.append(
+            {
+                "rule_id": rule.rule_id,
+                "severity": rule.severity.value,
+                "description": rule.description,
+                "categories": categories,
+                "db_vendors": db_vendors,
+            }
+        )
+
+    if output_format == "json":
+        print(json_module.dumps(rules_data, indent=2))
+    else:
+        # Console table format
+        print("Available Rules:")
+        print("-" * 80)
+        for rule_info in rules_data:
+            severity_str = str(rule_info["severity"]).upper()
+            categories_str = ", ".join(rule_info["categories"]) or "none"
+            db_str = ", ".join(rule_info["db_vendors"])
+            print(f"{rule_info['rule_id']} [{severity_str}] {rule_info['description']}")
+            print(f"    Categories: {categories_str}")
+            print(f"    Databases: {db_str}")
+            print()
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run the migration checker CLI.
 
@@ -63,6 +116,17 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Check Django migrations for unsafe operations",
         prog="django-safe-migrations",
+        epilog="""
+Examples:
+  %(prog)s                      Check all migrations
+  %(prog)s myapp                Check specific app
+  %(prog)s --new-only           Check unapplied migrations only
+  %(prog)s --format=json        Output as JSON
+  %(prog)s --list-rules         Show all available rules
+
+Documentation: https://django-safe-migrations.readthedocs.io/
+""",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "app_labels",
@@ -71,9 +135,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--format",
-        choices=["console", "json", "github"],
+        choices=["console", "json", "github", "sarif"],
         default="console",
         help="Output format (default: console)",
+    )
+    parser.add_argument(
+        "--list-rules",
+        action="store_true",
+        help="List all available rules and exit",
     )
     parser.add_argument(
         "--fail-on-warning",
@@ -104,6 +173,10 @@ def main(argv: list[str] | None = None) -> int:
 
     args: Namespace = parser.parse_args(argv)
 
+    # Handle --list-rules before Django setup (doesn't need full Django)
+    if args.list_rules:
+        return list_rules(args.format)
+
     # Setup Django
     if not setup_django():
         print(
@@ -115,8 +188,12 @@ def main(argv: list[str] | None = None) -> int:
 
     # Import after Django setup
     from django_safe_migrations.analyzer import MigrationAnalyzer
+    from django_safe_migrations.conf import log_config_warnings
     from django_safe_migrations.reporters import get_reporter
     from django_safe_migrations.rules.base import Severity
+
+    # Validate configuration and log any warnings
+    log_config_warnings()
 
     # Build exclude list
     exclude_apps = list(args.exclude_apps)

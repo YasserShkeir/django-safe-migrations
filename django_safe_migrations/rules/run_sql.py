@@ -382,3 +382,246 @@ migrations.RunPython(
     reverse_code=complex_reverse,
 )
 """
+
+
+class SQLInjectionPatternRule(BaseRule):
+    """Detect potential SQL injection patterns in RunSQL.
+
+    RunSQL operations that use string formatting or interpolation
+    may be vulnerable to SQL injection if the values come from
+    untrusted sources.
+
+    This rule detects common patterns that suggest string interpolation:
+    - %s or %(name)s (Python % formatting)
+    - {name} or {} (Python format/f-string)
+    - String concatenation patterns
+
+    Note: This rule may have false positives for legitimate
+    parameterized queries. Use inline suppression if needed.
+    """
+
+    rule_id = "SM024"
+    severity = Severity.ERROR
+    description = "Potential SQL injection pattern detected in RunSQL"
+
+    # Patterns that suggest string interpolation (potential SQL injection)
+    DANGEROUS_PATTERNS = [
+        (r"%s", "Python string formatting (%s)"),
+        (r"%\([^)]+\)s", "Python named formatting (%(name)s)"),
+        (r"\{[^}]*\}", "Python format string ({} or {name})"),
+        (r"\$\{[^}]+\}", "Shell-style substitution (${var})"),
+        (r"'\s*\+\s*[a-zA-Z_]", "String concatenation ('+ var)"),
+        (r"[a-zA-Z_]\s*\+\s*'", "String concatenation (var +')"),
+        (r'"\s*\+\s*[a-zA-Z_]', 'String concatenation ("+ var)'),
+        (r'[a-zA-Z_]\s*\+\s*"', 'String concatenation (var +")'),
+    ]
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Check if RunSQL contains potential SQL injection patterns.
+
+        Args:
+            operation: The migration operation to check.
+            migration: The migration containing the operation.
+            **kwargs: Additional context.
+
+        Returns:
+            An Issue if dangerous patterns are found, None otherwise.
+        """
+        if not isinstance(operation, migrations.RunSQL):
+            return None
+
+        # Get the SQL string(s)
+        sql = getattr(operation, "sql", "")
+
+        # Handle case where sql is a list of statements
+        if isinstance(sql, (list, tuple)):
+            sql_str = " ".join(str(s) for s in sql)
+        else:
+            sql_str = str(sql)
+
+        # Check for dangerous patterns
+        for pattern, description in self.DANGEROUS_PATTERNS:
+            if re.search(pattern, sql_str):
+                return self.create_issue(
+                    operation=operation,
+                    migration=migration,
+                    message=(
+                        f"RunSQL contains potential SQL injection pattern: "
+                        f"{description}. If this is intentional "
+                        "parameterization, suppress this warning."
+                    ),
+                )
+
+        return None
+
+    def get_suggestion(self, operation: Operation) -> str:
+        """Return suggestion for safe SQL in migrations.
+
+        Args:
+            operation: The problematic operation.
+
+        Returns:
+            A multi-line string with the suggested safe pattern.
+        """
+        return """Avoid SQL injection in migrations:
+
+1. Use static SQL strings (safest):
+   migrations.RunSQL(
+       sql='CREATE INDEX idx ON users (email)',
+       reverse_sql='DROP INDEX idx',
+   )
+
+2. For parameterized queries, use RunPython instead:
+   def create_index(apps, schema_editor):
+       with schema_editor.connection.cursor() as cursor:
+           cursor.execute(
+               'CREATE INDEX %s ON %s (%s)',
+               [index_name, table_name, column_name]
+           )
+
+   migrations.RunPython(create_index, ...)
+
+3. If you must use dynamic SQL, validate inputs strictly:
+   - Whitelist allowed values
+   - Use identifier quoting for table/column names
+   - Never interpolate user input directly
+
+4. If this warning is a false positive (e.g., you're using
+   params argument correctly), suppress it:
+
+   migrations.RunSQL(  # safe-migrations: ignore SM024
+       sql='SELECT * FROM %(table)s',
+       params={'table': 'users'},
+   )
+"""
+
+
+class RunPythonNoBatchingRule(BaseRule):
+    """Detect RunPython that may load all rows into memory.
+
+    RunPython operations that use .all() without .iterator() or
+    batching can load the entire table into memory, causing:
+    - Out of memory errors on large tables
+    - Long-running transactions that block other operations
+
+    Safe pattern:
+    - Use .iterator(chunk_size=N)
+    - Process in batches with slicing
+    - Use .values() or .values_list() when possible
+    """
+
+    rule_id = "SM026"
+    severity = Severity.WARNING
+    description = "RunPython may load all rows into memory without batching"
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Check if RunPython loads all rows without batching.
+
+        Args:
+            operation: The migration operation to check.
+            migration: The migration containing the operation.
+            **kwargs: Additional context.
+
+        Returns:
+            An Issue if the operation may load all rows, None otherwise.
+        """
+        if not isinstance(operation, migrations.RunPython):
+            return None
+
+        # Get the forward function
+        code_func = getattr(operation, "code", None)
+        if code_func is None:
+            return None
+
+        # Try to get the source code
+        try:
+            import inspect
+
+            source = inspect.getsource(code_func)
+        except (OSError, TypeError):
+            # Can't get source (e.g., lambda, built-in, or file not available)
+            return None
+
+        # Check for .all() without iterator or batching
+        has_all = ".all()" in source
+        has_iterator = ".iterator(" in source
+        has_batching = any(
+            pattern in source.lower()
+            for pattern in ["chunk", "batch", "[:batch", "[: batch", "[:1000", "[0:"]
+        )
+        has_values = ".values(" in source or ".values_list(" in source
+
+        # If using .all() without any batching mechanism
+        if has_all and not has_iterator and not has_batching and not has_values:
+            func_name = getattr(code_func, "__name__", "function")
+            return self.create_issue(
+                operation=operation,
+                migration=migration,
+                message=(
+                    f"RunPython function '{func_name}' uses .all() without "
+                    ".iterator() or batching. This may load all rows into memory."
+                ),
+            )
+
+        return None
+
+    def get_suggestion(self, operation: Operation) -> str:
+        """Return suggestion for batching in RunPython.
+
+        Args:
+            operation: The problematic operation.
+
+        Returns:
+            A multi-line string with the suggested safe pattern.
+        """
+        return """Avoid loading all rows into memory in RunPython:
+
+1. Use iterator() with chunk_size:
+   def migrate_data(apps, schema_editor):
+       Model = apps.get_model('app', 'Model')
+       for obj in Model.objects.all().iterator(chunk_size=1000):
+           obj.new_field = transform(obj.old_field)
+           obj.save()
+
+2. Process in explicit batches:
+   def migrate_data(apps, schema_editor):
+       Model = apps.get_model('app', 'Model')
+       batch_size = 1000
+       total = Model.objects.count()
+
+       for start in range(0, total, batch_size):
+           batch = Model.objects.all()[start:start + batch_size]
+           for obj in batch:
+               ...
+
+3. Use bulk_update for efficiency:
+   def migrate_data(apps, schema_editor):
+       Model = apps.get_model('app', 'Model')
+       batch_size = 1000
+
+       objs = list(Model.objects.filter(
+           needs_update=True
+       )[:batch_size])
+
+       while objs:
+           for obj in objs:
+               obj.field = new_value
+           Model.objects.bulk_update(objs, ['field'])
+
+           objs = list(Model.objects.filter(
+               needs_update=True
+           )[:batch_size])
+
+4. Use values/values_list when you don't need model instances:
+   ids = list(Model.objects.values_list('id', flat=True))
+"""

@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-01-20
+
+### Added
+
+- **8 New Rules**:
+  - SM020: Detects `AlterField` with `null=False` without data backfill (ERROR)
+  - SM021: Detects adding `unique=True` via `AlterField` which locks table (ERROR, PostgreSQL)
+  - SM022: Warns about expensive callable defaults like `timezone.now` (WARNING)
+  - SM023: Informational notice when adding `ManyToManyField` (INFO)
+  - SM024: Detects SQL injection patterns in `RunSQL` operations (ERROR)
+  - SM025: Warns about `ForeignKey` with explicit `db_index=False` (WARNING)
+  - SM026: Warns about `RunPython` using `.all()` without batching (WARNING)
+  - SM027: Detects missing merge migrations (multiple leaf nodes per app) (ERROR)
+
+- **`--list-rules` Command**: List all available rules with severity, categories, and database support:
+
+  ```bash
+  python manage.py check_migrations --list-rules
+  python manage.py check_migrations --list-rules --format=json
+  ```
+
+- **Configuration Validation**: Invalid rule IDs and category names are now validated on startup with typo suggestions:
+
+  ```
+  Configuration warning: Unknown rule ID in DISABLED_RULES: 'SM00'. Did you mean 'SM001'?
+  ```
+
+- **Custom Rule Plugin System**: Load custom rules via `EXTRA_RULES` setting:
+
+  ```python
+  SAFE_MIGRATIONS = {
+      "EXTRA_RULES": [
+          "myproject.rules.CustomRule",
+      ]
+  }
+  ```
+
+- **New Rule Categories**:
+  - `relations`: Rules for foreign keys and many-to-many relationships
+  - `security`: SQL injection detection rules
+  - `performance`: Rules for expensive operations
+
+- **Better CLI Help**: Added examples and documentation link to CLI epilog
+
+### Changed
+
+- **CI/CD Improvements**:
+  - Updated `codecov/codecov-action` from v4 to v5
+  - Added `pip-audit` security scanning job
+
+### Documentation
+
+- Updated rules index with new rules SM020-SM027
+- Added custom rules documentation
+
 ## [0.3.0] - 2026-01-20
 
 ### Added
@@ -132,7 +187,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented detailed security documentation regarding `EXTRA_RULES` and dynamic code loading.
 - Established security reporting policy.
 
-[Unreleased]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.1...v0.1.2

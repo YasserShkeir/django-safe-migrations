@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from typing import IO, Any
 
 from django.core.management.base import BaseCommand, CommandParser
 
 from django_safe_migrations.analyzer import MigrationAnalyzer
+from django_safe_migrations.conf import get_category_for_rule, log_config_warnings
 from django_safe_migrations.reporters import get_reporter
+from django_safe_migrations.rules import ALL_RULES, _load_extra_rules
 from django_safe_migrations.rules.base import Severity
 
 
@@ -80,6 +83,54 @@ class Command(BaseCommand):
             action="store_true",
             help="Include Django's built-in apps (auth, admin, etc.)",
         )
+        parser.add_argument(
+            "--list-rules",
+            action="store_true",
+            help="List all available rules and exit",
+        )
+
+    def list_rules(self, output_format: str) -> None:
+        """List all available rules.
+
+        Lists both built-in rules and any custom rules configured via EXTRA_RULES.
+
+        Args:
+            output_format: Output format ('console' or 'json').
+        """
+        # Collect both built-in and custom rules
+        all_rule_classes = list(ALL_RULES) + _load_extra_rules()
+
+        rules_data = []
+        for rule_cls in all_rule_classes:
+            rule = rule_cls()
+            categories = get_category_for_rule(rule.rule_id)
+            db_vendors = rule.db_vendors if rule.db_vendors else ["all"]
+
+            rules_data.append(
+                {
+                    "rule_id": rule.rule_id,
+                    "severity": rule.severity.value,
+                    "description": rule.description,
+                    "categories": categories,
+                    "db_vendors": db_vendors,
+                }
+            )
+
+        if output_format == "json":
+            self.stdout.write(json.dumps(rules_data, indent=2))
+        else:
+            # Console table format
+            self.stdout.write("Available Rules:")
+            self.stdout.write("-" * 80)
+            for rule_info in rules_data:
+                severity_str = str(rule_info["severity"]).upper()
+                categories_str = ", ".join(rule_info["categories"]) or "none"
+                db_str = ", ".join(rule_info["db_vendors"])
+                desc = rule_info["description"]
+                self.stdout.write(f"{rule_info['rule_id']} [{severity_str}] {desc}")
+                self.stdout.write(f"    Categories: {categories_str}")
+                self.stdout.write(f"    Databases: {db_str}")
+                self.stdout.write("")
 
     def handle(self, *args: Any, **options: Any) -> None:
         """Execute the command.
@@ -88,8 +139,17 @@ class Command(BaseCommand):
             *args: Positional arguments.
             **options: Command options.
         """
-        app_labels = options["app_labels"]
         output_format = options["format"]
+
+        # Handle --list-rules
+        if options.get("list_rules"):
+            self.list_rules(output_format)
+            return
+
+        # Validate configuration and log any warnings
+        log_config_warnings()
+
+        app_labels = options["app_labels"]
         output_file = options["output"]
         fail_on_warning = options["fail_on_warning"]
         new_only = options["new_only"]
