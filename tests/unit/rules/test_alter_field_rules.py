@@ -136,6 +136,197 @@ class TestAlterColumnTypeRule:
         assert issue is None
 
 
+class TestAlterColumnTypeRuleWithOldField:
+    """Tests for SM004 with old_field comparison (before-state gap fix)."""
+
+    def test_safe_when_only_null_changed(self, mock_migration):
+        """Test safe change: same type, adding null=True."""
+        rule = AlterColumnTypeRule()
+        old_field = models.CharField(max_length=255)
+        new_field = models.CharField(max_length=255, null=True)
+        operation = migrations.AlterField(
+            model_name="user", name="email", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is None
+
+    def test_safe_when_only_default_changed(self, mock_migration):
+        """Test safe change: same type, only default changed."""
+        rule = AlterColumnTypeRule()
+        old_field = models.CharField(max_length=100)
+        new_field = models.CharField(max_length=100, default="new")
+        operation = migrations.AlterField(
+            model_name="user", name="status", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is None
+
+    def test_safe_when_only_metadata_changed(self, mock_migration):
+        """Test safe change: same type, only help_text changed."""
+        rule = AlterColumnTypeRule()
+        old_field = models.CharField(max_length=100, help_text="old")
+        new_field = models.CharField(max_length=100, help_text="new")
+        operation = migrations.AlterField(
+            model_name="user", name="name", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is None
+
+    def test_unsafe_when_type_changed(self, mock_migration):
+        """Test unsafe change: type changed from CharField to IntegerField."""
+        rule = AlterColumnTypeRule()
+        old_field = models.CharField(max_length=100)
+        new_field = models.IntegerField()
+        operation = migrations.AlterField(
+            model_name="user", name="code", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is not None
+        assert issue.rule_id == "SM004"
+
+    def test_unsafe_when_max_length_decreased(self, mock_migration):
+        """Test unsafe: same type but max_length decreased."""
+        rule = AlterColumnTypeRule()
+        old_field = models.CharField(max_length=255)
+        new_field = models.CharField(max_length=50)
+        operation = migrations.AlterField(
+            model_name="user", name="email", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is not None
+        assert issue.rule_id == "SM004"
+
+
+class TestAlterVarcharLengthRuleWithOldField:
+    """Tests for SM013 with old_field comparison."""
+
+    def test_safe_when_max_length_increased(self, mock_migration):
+        """Test safe: increasing max_length."""
+        rule = AlterVarcharLengthRule()
+        old_field = models.CharField(max_length=50)
+        new_field = models.CharField(max_length=255)
+        operation = migrations.AlterField(
+            model_name="user", name="name", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is None
+
+    def test_unsafe_when_max_length_decreased(self, mock_migration):
+        """Test unsafe: decreasing max_length."""
+        rule = AlterVarcharLengthRule()
+        old_field = models.CharField(max_length=255)
+        new_field = models.CharField(max_length=50)
+        operation = migrations.AlterField(
+            model_name="user", name="name", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is not None
+        assert issue.rule_id == "SM013"
+        assert "255" in issue.message
+        assert "50" in issue.message
+
+    def test_safe_when_max_length_unchanged(self, mock_migration):
+        """Test safe: max_length unchanged."""
+        rule = AlterVarcharLengthRule()
+        old_field = models.CharField(max_length=100)
+        new_field = models.CharField(max_length=100)
+        operation = migrations.AlterField(
+            model_name="user", name="name", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is None
+
+    def test_skips_when_old_field_is_not_charfield(self, mock_migration):
+        """Test skips when old field was a different type."""
+        rule = AlterVarcharLengthRule()
+        old_field = models.IntegerField()
+        new_field = models.CharField(max_length=50)
+        operation = migrations.AlterField(
+            model_name="user", name="code", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is None
+
+
+class TestAlterFieldNullFalseRuleWithOldField:
+    """Tests for SM020 with old_field comparison."""
+
+    def test_warns_when_changing_nullable_to_not_null(self, mock_migration):
+        """Test warns when field was nullable and now is NOT NULL."""
+        from django_safe_migrations.rules.alter_field import AlterFieldNullFalseRule
+
+        rule = AlterFieldNullFalseRule()
+        old_field = models.CharField(max_length=255, null=True)
+        new_field = models.CharField(max_length=255, null=False)
+        operation = migrations.AlterField(
+            model_name="user", name="email", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is not None
+        assert issue.rule_id == "SM020"
+
+    def test_skips_when_field_was_already_not_null(self, mock_migration):
+        """Test skips when field was already NOT NULL."""
+        from django_safe_migrations.rules.alter_field import AlterFieldNullFalseRule
+
+        rule = AlterFieldNullFalseRule()
+        old_field = models.CharField(max_length=255)  # null=False by default
+        new_field = models.CharField(max_length=255, default="x")  # still NOT NULL
+        operation = migrations.AlterField(
+            model_name="user", name="email", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is None
+
+
+class TestAlterFieldUniqueRuleWithOldField:
+    """Tests for SM021 with old_field comparison."""
+
+    def test_warns_when_adding_unique(self, mock_migration):
+        """Test warns when unique=True is being added."""
+        from django_safe_migrations.rules.alter_field import AlterFieldUniqueRule
+
+        rule = AlterFieldUniqueRule()
+        old_field = models.CharField(max_length=255)
+        new_field = models.CharField(max_length=255, unique=True)
+        operation = migrations.AlterField(
+            model_name="user", name="email", field=new_field
+        )
+        issue = rule.check(
+            operation, mock_migration, old_field=old_field, db_vendor="postgresql"
+        )
+
+        assert issue is not None
+        assert issue.rule_id == "SM021"
+
+    def test_skips_when_already_unique(self, mock_migration):
+        """Test skips when field was already unique."""
+        from django_safe_migrations.rules.alter_field import AlterFieldUniqueRule
+
+        rule = AlterFieldUniqueRule()
+        old_field = models.CharField(max_length=255, unique=True)
+        new_field = models.CharField(max_length=255, unique=True)
+        operation = migrations.AlterField(
+            model_name="user", name="email", field=new_field
+        )
+        issue = rule.check(
+            operation, mock_migration, old_field=old_field, db_vendor="postgresql"
+        )
+
+        assert issue is None
+
+
 class TestAddForeignKeyValidatesRule:
     """Tests for AddForeignKeyValidatesRule (SM005)."""
 
@@ -503,3 +694,112 @@ class TestRenameModelRule:
         assert (
             "foreign key" in suggestion.lower() or "foreign keys" in suggestion.lower()
         )
+
+
+class TestDropNotNullRule:
+    """Tests for DropNotNullRule (SM029)."""
+
+    def test_detects_dropping_not_null_with_old_field(self, mock_migration):
+        """Test that rule detects change from NOT NULL to nullable."""
+        from django_safe_migrations.rules.alter_field import DropNotNullRule
+
+        rule = DropNotNullRule()
+        old_field = models.CharField(max_length=255)  # null=False by default
+        new_field = models.CharField(max_length=255, null=True)
+        operation = migrations.AlterField(
+            model_name="user", name="email", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is not None
+        assert issue.rule_id == "SM029"
+        assert issue.severity == Severity.WARNING
+        assert "email" in issue.message
+        assert "user" in issue.message
+        assert "NULL" in issue.message
+
+    def test_skips_when_field_was_already_nullable(self, mock_migration):
+        """Test that rule skips when field was already nullable."""
+        from django_safe_migrations.rules.alter_field import DropNotNullRule
+
+        rule = DropNotNullRule()
+        old_field = models.CharField(max_length=255, null=True)
+        new_field = models.CharField(max_length=255, null=True)
+        operation = migrations.AlterField(
+            model_name="user", name="email", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is None
+
+    def test_skips_when_new_field_is_not_null(self, mock_migration):
+        """Test that rule skips when new field is NOT NULL (not dropping)."""
+        from django_safe_migrations.rules.alter_field import DropNotNullRule
+
+        rule = DropNotNullRule()
+        old_field = models.CharField(max_length=255)  # null=False
+        new_field = models.CharField(max_length=255)  # null=False
+        operation = migrations.AlterField(
+            model_name="user", name="email", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is None
+
+    def test_returns_none_without_old_field(self, mock_migration):
+        """Test that rule returns None when old_field is not available."""
+        from django_safe_migrations.rules.alter_field import DropNotNullRule
+
+        rule = DropNotNullRule()
+        operation = migrations.AlterField(
+            model_name="user",
+            name="email",
+            field=models.CharField(max_length=255, null=True),
+        )
+        # No old_field provided
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_ignores_non_alterfield_operations(
+        self, not_null_field_operation, mock_migration
+    ):
+        """Test that rule ignores non-AlterField operations."""
+        from django_safe_migrations.rules.alter_field import DropNotNullRule
+
+        rule = DropNotNullRule()
+        issue = rule.check(not_null_field_operation, mock_migration)
+
+        assert issue is None
+
+    def test_detects_integerfield_drop_not_null(self, mock_migration):
+        """Test that rule detects dropping NOT NULL on IntegerField."""
+        from django_safe_migrations.rules.alter_field import DropNotNullRule
+
+        rule = DropNotNullRule()
+        old_field = models.IntegerField()  # null=False by default
+        new_field = models.IntegerField(null=True)
+        operation = migrations.AlterField(
+            model_name="order", name="quantity", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is not None
+        assert issue.rule_id == "SM029"
+        assert "quantity" in issue.message
+
+    def test_provides_suggestion(self):
+        """Test that rule provides a helpful suggestion."""
+        from django_safe_migrations.rules.alter_field import DropNotNullRule
+
+        rule = DropNotNullRule()
+        operation = migrations.AlterField(
+            model_name="user",
+            name="email",
+            field=models.CharField(max_length=255, null=True),
+        )
+        suggestion = rule.get_suggestion(operation)
+
+        assert suggestion is not None
+        assert "NULL" in suggestion or "null" in suggestion.lower()
+        assert "email" in suggestion

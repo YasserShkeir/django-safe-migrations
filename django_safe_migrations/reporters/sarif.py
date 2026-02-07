@@ -10,6 +10,7 @@ https://docs.oasis-open.org/sarif/sarif/v2.1.0/sarif-v2.1.0.html
 from __future__ import annotations
 
 import json
+import os
 import sys
 from typing import TYPE_CHECKING, Any, TextIO
 
@@ -185,8 +186,8 @@ class SarifReporter(BaseReporter):
                     "level": _severity_to_sarif_level_from_str(info["severity"]),
                 },
                 "helpUri": (
-                    f"https://django-safe-migrations.readthedocs.io/"
-                    f"en/latest/rules/{info['id']}/"
+                    "https://github.com/YasserShkeir/"
+                    "django-safe-migrations/blob/main/docs/rules.md"
                 ),
             }
             for info in rule_info.values()
@@ -220,10 +221,18 @@ class SarifReporter(BaseReporter):
 
         # Add location if available
         if issue.file_path:
+            # Convert absolute paths to relative for GitHub Code Scanning
+            file_uri = issue.file_path
+            if os.path.isabs(file_uri):
+                try:
+                    file_uri = os.path.relpath(file_uri)
+                except ValueError:
+                    pass  # On Windows, relpath can fail across drives
+
             location: dict[str, Any] = {
                 "physicalLocation": {
                     "artifactLocation": {
-                        "uri": issue.file_path,
+                        "uri": file_uri,
                         "uriBaseId": "%SRCROOT%",
                     }
                 }

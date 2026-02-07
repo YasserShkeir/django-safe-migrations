@@ -15,13 +15,13 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        # 'order' is a SQL reserved keyword
+        # 'order' is a SQL reserved keyword (nullable so 0014 can test null→NOT NULL)
         migrations.AddField(
             model_name="user",
             name="order",
-            field=models.IntegerField(default=0),
+            field=models.IntegerField(null=True),
         ),
-        # 'type' is also a reserved keyword
+        # 'type' was removed from reserved keywords in v0.5.0
         migrations.AddField(
             model_name="user",
             name="type",

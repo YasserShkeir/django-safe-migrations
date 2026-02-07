@@ -237,8 +237,17 @@ def get_db_vendor() -> str:
     try:
         from django.db import connection
 
-        return connection.vendor
+        vendor = connection.vendor
+        # Normalize PostGIS to postgresql so vendor-specific rules still apply
+        if vendor == "postgis":
+            return "postgresql"
+        return vendor
     except Exception:
+        logger.warning(
+            "Could not determine database vendor; "
+            "all vendor-specific rules will be skipped",
+            exc_info=True,
+        )
         return "unknown"
 
 
@@ -316,3 +325,71 @@ def get_unapplied_migrations(app_label: str | None = None) -> list[tuple[str, st
                 unapplied.append(key)
 
     return sorted(unapplied)
+
+
+def resolve_field_before_operation(
+    app_label: str,
+    migration_name: str,
+    operation_index: int,
+    model_name: str,
+    field_name: str,
+) -> Any:
+    """Resolve the field definition before an AlterField operation.
+
+    Uses Django's migration state resolver to build the project state
+    up to (but not including) the target operation, then extracts the
+    field definition from the model state.
+
+    Args:
+        app_label: The app label (e.g., 'myapp').
+        migration_name: The migration name (e.g., '0002_alter_field').
+        operation_index: The index of the operation within the migration.
+        model_name: The model name (lowercase).
+        field_name: The field name.
+
+    Returns:
+        The old field instance, or None if it cannot be resolved.
+    """
+    try:
+        from django.db.migrations.loader import MigrationLoader
+
+        loader = MigrationLoader(None, ignore_no_migrations=True)
+        migration_key = (app_label, migration_name)
+
+        if migration_key not in loader.disk_migrations:
+            logger.debug("Migration %s not in disk_migrations", migration_key)
+            return None
+
+        # Build state up to (but not including) this migration
+        state = loader.project_state(migration_key, at_end=False)
+
+        # If the operation isn't the first one, replay earlier operations
+        # in the same migration to get the exact state before this op
+        if operation_index > 0:
+            migration = loader.get_migration(app_label, migration_name)
+            operations = getattr(migration, "operations", [])
+            for i in range(min(operation_index, len(operations))):
+                operations[i].state_forwards(app_label, state)
+
+        # Look up the model state
+        model_key = (app_label, model_name)
+        model_state = state.models.get(model_key)
+        if model_state is None:
+            logger.debug("Model %s not found in state", model_key)
+            return None
+
+        # Look up the field in the model state
+        # Django 4.2+ uses a dict; older versions use a list of tuples
+        fields = model_state.fields
+        if isinstance(fields, dict):
+            return fields.get(field_name)
+        for name, field in fields:
+            if name == field_name:
+                return field
+
+        logger.debug("Field %s not found in model %s", field_name, model_key)
+        return None
+
+    except Exception as e:  # noqa: BLE001
+        logger.debug("Could not resolve old field state: %s", e)
+        return None

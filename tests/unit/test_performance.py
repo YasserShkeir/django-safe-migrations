@@ -146,7 +146,7 @@ class TestAnalyzerPerformance:
 
         # Should be fast (< 1s for 100 initializations)
         assert elapsed < 1.0, f"Initialization took {elapsed:.3f}s, expected < 1.0s"
-        assert analyzer is not None
+        assert len(analyzer.rules) > 0
 
 
 class TestReporterPerformance:
@@ -293,15 +293,16 @@ class TestMemoryEfficiency:
         # Force garbage collection
         gc.collect()
 
-        # If we get here without OOM, memory is being managed properly
-        assert True
+        # Verify all 100 iterations completed without memory issues
+        assert i == 99
 
     def test_reporter_memory_efficiency(self) -> None:
         """Test that reporters don't accumulate excessive memory."""
         import gc
 
         # Generate many reports
-        for _ in range(50):
+        iterations = 0
+        for iterations in range(1, 51):  # noqa: B007
             issues = [
                 Issue(
                     rule_id="SM001",
@@ -325,8 +326,8 @@ class TestMemoryEfficiency:
 
         gc.collect()
 
-        # If we get here without OOM, memory is being managed properly
-        assert True
+        # Verify all 50 iterations completed without memory issues
+        assert iterations == 50
 
 
 # Pytest benchmark integration (optional)

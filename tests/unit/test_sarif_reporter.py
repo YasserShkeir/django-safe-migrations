@@ -582,3 +582,106 @@ class TestSarifSchemaValidation:
         assert "results" in run
         # Results should be an array
         assert isinstance(run["results"], list)
+
+
+class TestSarifAbsolutePathConversion:
+    """Tests for SARIF absolute path to relative path conversion (v0.5.0 fix).
+
+    GitHub Code Scanning expects relative paths from %SRCROOT%, so
+    absolute paths must be converted.
+    """
+
+    def test_converts_absolute_path_to_relative(self) -> None:
+        """Test that absolute file paths are converted to relative."""
+        stream = StringIO()
+        reporter = SarifReporter(stream=stream)
+
+        issue = Issue(
+            rule_id="SM001",
+            severity=Severity.ERROR,
+            operation="AddField",
+            message="Test",
+            file_path="/home/user/project/myapp/migrations/0001.py",
+            line_number=10,
+        )
+        reporter.report([issue])
+
+        data = json.loads(stream.getvalue())
+        result = data["runs"][0]["results"][0]
+        uri = result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+
+        # Should not be an absolute path
+        assert not uri.startswith("/")
+
+    def test_preserves_relative_path(self) -> None:
+        """Test that relative file paths are preserved as-is."""
+        stream = StringIO()
+        reporter = SarifReporter(stream=stream)
+
+        issue = Issue(
+            rule_id="SM001",
+            severity=Severity.ERROR,
+            operation="AddField",
+            message="Test",
+            file_path="myapp/migrations/0001.py",
+            line_number=10,
+        )
+        reporter.report([issue])
+
+        data = json.loads(stream.getvalue())
+        result = data["runs"][0]["results"][0]
+        uri = result["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+
+        assert uri == "myapp/migrations/0001.py"
+
+    def test_srcroot_uri_base_id(self) -> None:
+        """Test that uriBaseId is set to %SRCROOT%."""
+        stream = StringIO()
+        reporter = SarifReporter(stream=stream)
+
+        issue = Issue(
+            rule_id="SM001",
+            severity=Severity.ERROR,
+            operation="AddField",
+            message="Test",
+            file_path="myapp/migrations/0001.py",
+            line_number=10,
+        )
+        reporter.report([issue])
+
+        data = json.loads(stream.getvalue())
+        artifact = data["runs"][0]["results"][0]["locations"][0]["physicalLocation"][
+            "artifactLocation"
+        ]
+        assert artifact["uriBaseId"] == "%SRCROOT%"
+
+
+class TestSarifHelpUri:
+    """Tests for SARIF helpUri pointing to correct documentation (v0.5.0 fix)."""
+
+    def test_help_uri_points_to_rules_md(self) -> None:
+        """Test that helpUri points to docs/rules.md on GitHub."""
+        stream = StringIO()
+        reporter = SarifReporter(stream=stream)
+        reporter.report([])
+
+        data = json.loads(stream.getvalue())
+        rules = data["runs"][0]["tool"]["driver"]["rules"]
+
+        for rule in rules:
+            assert "helpUri" in rule
+            assert "docs/rules.md" in rule["helpUri"]
+            assert "github.com" in rule["helpUri"]
+
+    def test_help_uri_is_consistent_across_rules(self) -> None:
+        """Test that all rules share the same helpUri."""
+        stream = StringIO()
+        reporter = SarifReporter(stream=stream)
+        reporter.report([])
+
+        data = json.loads(stream.getvalue())
+        rules = data["runs"][0]["tool"]["driver"]["rules"]
+        uris = {rule["helpUri"] for rule in rules}
+
+        # All rules should point to the same page
+        assert len(uris) == 1
