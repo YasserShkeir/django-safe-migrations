@@ -104,6 +104,26 @@ jobs:
       - run: python manage.py check_migrations --format=github
 ```
 
+### More Options
+
+```bash
+# Only check migrations changed since main
+python manage.py check_migrations --diff
+
+# Generate a baseline for existing issues
+python manage.py check_migrations --generate-baseline .migration-baseline.json
+
+# Run with baseline to catch only new issues
+python manage.py check_migrations --baseline .migration-baseline.json
+
+# Interactively review each issue
+python manage.py check_migrations --interactive
+
+# Watch for changes during development
+pip install django-safe-migrations[watch]
+python manage.py check_migrations --watch
+```
+
 ## Next Steps
 
 - Read about all [Rules](rules.md)

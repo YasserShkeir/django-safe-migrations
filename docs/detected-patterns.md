@@ -4,16 +4,20 @@ This page shows exactly what patterns django-safe-migrations detects, using real
 
 ## Quick Reference
 
-| Pattern                                                      | Rule  | Severity | Risk               |
-| ------------------------------------------------------------ | ----- | -------- | ------------------ |
-| [NOT NULL without default](#not-null-without-default)        | SM001 | ERROR    | Table lock         |
-| [Drop column](#drop-column)                                  | SM002 | WARNING  | Application errors |
-| [Drop table](#drop-table)                                    | SM003 | WARNING  | Application errors |
-| [Non-concurrent index](#non-concurrent-index-postgresql)     | SM010 | ERROR    | Table lock         |
-| [RunSQL without reverse](#runsql-without-reverse)            | SM007 | WARNING  | Irreversible       |
-| [Enum in transaction](#enum-value-in-transaction-postgresql) | SM012 | ERROR    | Transaction fails  |
-| [Unique constraint](#unique-constraint)                      | SM009 | ERROR    | Table lock         |
-| [RunPython without reverse](#runpython-without-reverse)      | SM016 | INFO     | Irreversible       |
+| Pattern                                                                  | Rule  | Severity | Risk               |
+| ------------------------------------------------------------------------ | ----- | -------- | ------------------ |
+| [NOT NULL without default](#not-null-without-default)                    | SM001 | ERROR    | Table lock         |
+| [Drop column](#drop-column)                                              | SM002 | WARNING  | Application errors |
+| [Drop table](#drop-table)                                                | SM003 | WARNING  | Application errors |
+| [Non-concurrent index](#non-concurrent-index-postgresql)                 | SM010 | ERROR    | Table lock         |
+| [RunSQL without reverse](#runsql-without-reverse)                        | SM007 | WARNING  | Irreversible       |
+| [Enum in transaction](#enum-value-in-transaction-postgresql)             | SM012 | ERROR    | Transaction fails  |
+| [Unique constraint](#unique-constraint)                                  | SM009 | ERROR    | Table lock         |
+| [RunPython without reverse](#runpython-without-reverse)                  | SM016 | INFO     | Irreversible       |
+| [32-bit primary key](#32-bit-primary-key)                                | SM028 | WARNING  | Scalability        |
+| [Non-concurrent index removal](#non-concurrent-index-removal-postgresql) | SM030 | ERROR    | Table lock         |
+| [NOT NULL with Python default](#not-null-field-with-python-default)      | SM033 | WARNING  | Table rewrite      |
+| [Missing lock_timeout](#missing-lock_timeout-in-runsql)                  | SM035 | INFO     | Blocking           |
 
 ______________________________________________________________________
 
@@ -565,6 +569,180 @@ class Migration(migrations.Migration):
             reverse_code=reverse_populate,
         ),
     ]
+```
+
+______________________________________________________________________
+
+## 32-bit Primary Key
+
+**Rule:** SM028 | **Severity:** WARNING
+
+### The Unsafe Pattern
+
+```python
+class Migration(migrations.Migration):
+    operations = [
+        migrations.AddField(
+            model_name='order',
+            name='id',
+            field=models.AutoField(primary_key=True),
+        ),
+    ]
+```
+
+### Tool Output
+
+```
+WARNING [SM028] myapp/migrations/0021_autofield.py
+  Prefer BigAutoField over 32-bit AutoField for primary keys.
+  32-bit integers max out at ~2.1 billion rows.
+```
+
+### Why It's Dangerous
+
+Using a 32-bit `AutoField` limits your table to approximately 2.1 billion rows. While that sounds like a lot, high-write tables (logs, events, orders) can hit this ceiling, causing inserts to fail with integer overflow errors. Migrating a large table from `AutoField` to `BigAutoField` later requires a full table rewrite, which means extended downtime.
+
+### The Safe Pattern
+
+```python
+# settings.py
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+```
+
+______________________________________________________________________
+
+## Non-Concurrent Index Removal (PostgreSQL)
+
+**Rule:** SM030 | **Severity:** ERROR
+
+### The Unsafe Pattern
+
+```python
+class Migration(migrations.Migration):
+    operations = [
+        migrations.RemoveIndex(
+            model_name='order',
+            name='order_status_idx',
+        ),
+    ]
+```
+
+### Tool Output
+
+```
+ERROR [SM030] myapp/migrations/0023_remove_index.py
+  Index removal without CONCURRENTLY will lock the table on PostgreSQL.
+```
+
+### Why It's Dangerous
+
+Standard `DROP INDEX`:
+
+- Acquires `ACCESS EXCLUSIVE` lock on the table
+- Blocks all reads and writes while the index is being removed
+- On large tables with many concurrent connections, this can cause request queuing and timeouts
+
+### The Safe Pattern
+
+```python
+from django.contrib.postgres.operations import RemoveIndexConcurrently
+
+class Migration(migrations.Migration):
+    atomic = False  # REQUIRED for concurrent operations
+
+    operations = [
+        RemoveIndexConcurrently(
+            model_name='order',
+            name='order_status_idx',
+        ),
+    ]
+```
+
+______________________________________________________________________
+
+## NOT NULL Field with Python Default
+
+**Rule:** SM033 | **Severity:** WARNING
+
+### The Unsafe Pattern
+
+```python
+class Migration(migrations.Migration):
+    operations = [
+        migrations.AddField(
+            model_name='order',
+            name='status',
+            field=models.CharField(max_length=20, default='pending'),
+        ),
+    ]
+```
+
+### Tool Output
+
+```
+WARNING [SM033] myapp/migrations/0025_add_status.py
+  Adding NOT NULL field with Python default rewrites all existing rows.
+```
+
+### Why It's Dangerous
+
+When you add a NOT NULL column with a Python-level `default`:
+
+1. Django generates SQL that adds the column with a server-side DEFAULT
+2. PostgreSQL then rewrites every existing row to fill in the default value
+3. This acquires an `ACCESS EXCLUSIVE` lock for the duration of the rewrite
+4. On large tables, the rewrite can take minutes to hours, blocking all queries
+
+### The Safe Pattern
+
+```python
+# Django 5.0+: Use db_default to set the default at the database level
+# without rewriting existing rows on supported databases
+migrations.AddField(
+    model_name='order',
+    name='status',
+    field=models.CharField(max_length=20, db_default='pending'),
+)
+```
+
+______________________________________________________________________
+
+## Missing lock_timeout in RunSQL
+
+**Rule:** SM035 | **Severity:** INFO
+
+### The Unsafe Pattern
+
+```python
+class Migration(migrations.Migration):
+    operations = [
+        migrations.RunSQL(
+            sql="ALTER TABLE myapp_order ADD COLUMN priority INTEGER DEFAULT 0;",
+        ),
+    ]
+```
+
+### Tool Output
+
+```
+INFO [SM035] myapp/migrations/0026_alter_order.py
+  RunSQL with DDL should set lock_timeout to avoid blocking.
+```
+
+### Why It Matters
+
+DDL statements like `ALTER TABLE` acquire locks that can block other queries. Without a `lock_timeout`, if the lock cannot be acquired immediately (because of long-running queries holding conflicting locks), the migration will wait indefinitely, which in turn queues up all subsequent queries behind it, potentially causing a full outage.
+
+### The Safe Pattern
+
+```python
+migrations.RunSQL(
+    sql=[
+        "SET lock_timeout = '5s';",
+        "ALTER TABLE myapp_order ADD COLUMN priority INTEGER DEFAULT 0;",
+    ],
+    reverse_sql="ALTER TABLE myapp_order DROP COLUMN priority;",
+)
 ```
 
 ______________________________________________________________________

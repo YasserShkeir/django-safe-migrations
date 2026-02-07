@@ -339,6 +339,44 @@ If you encounter an issue not covered here:
    - Minimal reproduction case
    - Full error message/traceback
 
+## Baseline and Diff Mode
+
+### Baseline file not found
+
+```
+FileNotFoundError: [Errno 2] No such file or directory: '.migration-baseline.json'
+```
+
+**Solution:** Generate the baseline first:
+
+```bash
+python manage.py check_migrations --generate-baseline .migration-baseline.json
+```
+
+### Diff mode shows no changes
+
+If `--diff` reports no changed migrations:
+
+1. Ensure you're comparing against the correct branch: `--diff main` or `--diff origin/main`
+2. Check that the migration files actually exist on disk (deleted files are filtered out)
+3. Verify git can run: `git diff --name-only main`
+
+### Watch mode not starting
+
+```
+ImportError: watchdog is required for watch mode
+```
+
+**Solution:** Install the watch extra:
+
+```bash
+pip install django-safe-migrations[watch]
+```
+
+### Interactive mode not working in CI
+
+Interactive mode requires a terminal for user input. Do not use `--interactive` in CI pipelines.
+
 ## See Also
 
 - [Configuration](configuration.md) - All configuration options

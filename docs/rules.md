@@ -1429,3 +1429,274 @@ class Migration(migrations.Migration):
     ]
     operations = []
 ```
+
+______________________________________________________________________
+
+## SM028: prefer_bigint_over_int
+
+| Property      | Value                       |
+| ------------- | --------------------------- |
+| **Rule ID**   | SM028                       |
+| **Severity**  | WARNING                     |
+| **Category**  | schema-changes, performance |
+| **Databases** | All                         |
+
+### What it detects
+
+`AddField` or `CreateModel` using `AutoField`, `SmallAutoField`, or `IntegerField` as a primary key. These 32-bit integer types max out at ~2.1 billion rows.
+
+### Why it's dangerous
+
+Once a 32-bit primary key overflows, inserts fail with `IntegerError`. Migrating a large table from `AutoField` to `BigAutoField` requires a full table rewrite with an ACCESS EXCLUSIVE lock.
+
+### Safe pattern
+
+```python
+# Use BigAutoField for new models
+class MyModel(models.Model):
+    class Meta:
+        # Django 3.2+
+        default_auto_field = 'django.db.models.BigAutoField'
+
+# Or set globally in settings.py
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+```
+
+______________________________________________________________________
+
+## SM029: drop_not_null
+
+| Property      | Value                     |
+| ------------- | ------------------------- |
+| **Rule ID**   | SM029                     |
+| **Severity**  | WARNING                   |
+| **Category**  | data-loss, schema-changes |
+| **Databases** | All                       |
+
+### What it detects
+
+`AlterField` that changes a field from `null=False` to `null=True`.
+
+### Why it's dangerous
+
+Dropping a NOT NULL constraint allows NULL values where they were previously prohibited. This can cause `NoneType` errors in application code that assumes the field is always populated.
+
+### Safe pattern
+
+```python
+# Ensure application code handles NULL before making field nullable
+# 1. Update code to handle None values
+# 2. Then make the migration
+migrations.AlterField(
+    model_name='user',
+    name='email',
+    field=models.CharField(max_length=255, null=True, blank=True),
+)
+```
+
+______________________________________________________________________
+
+## SM030: require_concurrent_index_delete
+
+| Property      | Value                        |
+| ------------- | ---------------------------- |
+| **Rule ID**   | SM030                        |
+| **Severity**  | ERROR                        |
+| **Category**  | postgresql, indexes, locking |
+| **Databases** | PostgreSQL                   |
+
+### What it detects
+
+`RemoveIndex` operations on PostgreSQL that don't use `RemoveIndexConcurrently`.
+
+### Why it's dangerous
+
+`DROP INDEX` takes an ACCESS EXCLUSIVE lock, blocking all reads and writes until the operation completes. On large tables, this can cause significant downtime.
+
+### Safe pattern
+
+```python
+from django.contrib.postgres.operations import RemoveIndexConcurrently
+
+class Migration(migrations.Migration):
+    atomic = False  # Required for concurrent operations
+
+    operations = [
+        RemoveIndexConcurrently(
+            model_name='user',
+            name='user_email_idx',
+        ),
+    ]
+```
+
+______________________________________________________________________
+
+## SM031: prefer_text_over_varchar
+
+| Property      | Value                     |
+| ------------- | ------------------------- |
+| **Rule ID**   | SM031                     |
+| **Severity**  | INFO                      |
+| **Category**  | postgresql, informational |
+| **Databases** | PostgreSQL                |
+
+### What it detects
+
+`AddField` with `CharField` on PostgreSQL.
+
+### Why it's relevant
+
+On PostgreSQL, `VARCHAR(n)` and `TEXT` have identical storage and performance characteristics. Using `TextField` avoids artificial length limits and prevents the need for future `AlterField` migrations to increase `max_length`.
+
+### Safe pattern
+
+```python
+# Consider using TextField instead of CharField on PostgreSQL
+migrations.AddField(
+    model_name='post',
+    name='content',
+    field=models.TextField(default=''),
+)
+```
+
+______________________________________________________________________
+
+## SM032: prefer_timestamptz
+
+| Property      | Value         |
+| ------------- | ------------- |
+| **Rule ID**   | SM032         |
+| **Severity**  | INFO          |
+| **Category**  | informational |
+| **Databases** | All           |
+
+### What it detects
+
+`AddField` with `DateTimeField` when `settings.USE_TZ` is `False`.
+
+### Why it's relevant
+
+Without timezone awareness, datetime values are stored as naive timestamps. This causes issues with daylight saving time, multi-timezone deployments, and data portability. PostgreSQL's `TIMESTAMPTZ` type stores UTC and converts automatically.
+
+### Safe pattern
+
+```python
+# settings.py
+USE_TZ = True
+
+# Then DateTimeField automatically uses TIMESTAMPTZ on PostgreSQL
+```
+
+______________________________________________________________________
+
+## SM033: adding_field_with_default
+
+| Property      | Value                       |
+| ------------- | --------------------------- |
+| **Rule ID**   | SM033                       |
+| **Severity**  | WARNING                     |
+| **Category**  | schema-changes, performance |
+| **Databases** | All                         |
+
+### What it detects
+
+`AddField` with `null=False` and a Python-level `default` value (but not `db_default`).
+
+### Why it's dangerous
+
+When adding a NOT NULL column with a Python default, Django rewrites every existing row to set the default value. On large tables this is slow and holds locks. On PostgreSQL 11+, using `db_default` with a constant value avoids the table rewrite entirely.
+
+### Safe pattern
+
+```python
+# Django 5.0+: Use db_default for constant values
+migrations.AddField(
+    model_name='order',
+    name='status',
+    field=models.CharField(max_length=20, db_default='pending'),
+)
+
+# Or add as nullable first, then backfill
+```
+
+______________________________________________________________________
+
+## SM034: prefer_identity
+
+| Property      | Value                     |
+| ------------- | ------------------------- |
+| **Rule ID**   | SM034                     |
+| **Severity**  | INFO                      |
+| **Category**  | postgresql, informational |
+| **Databases** | PostgreSQL                |
+
+### What it detects
+
+`AutoField` or `BigAutoField` on PostgreSQL with Django < 4.0.
+
+### Why it's relevant
+
+PostgreSQL 10+ supports IDENTITY columns, which are the SQL standard replacement for SERIAL sequences. Django 4.0+ uses IDENTITY columns by default. On older Django versions, you may want to use raw SQL to create IDENTITY columns instead.
+
+### Safe pattern
+
+Upgrade to Django 4.0+ where `BigAutoField` automatically uses IDENTITY columns on PostgreSQL.
+
+______________________________________________________________________
+
+## SM035: require_lock_timeout
+
+| Property      | Value         |
+| ------------- | ------------- |
+| **Rule ID**   | SM035         |
+| **Severity**  | INFO          |
+| **Category**  | informational |
+| **Databases** | All           |
+
+### What it detects
+
+`RunSQL` operations containing DDL statements (`ALTER TABLE`, `CREATE INDEX`, `DROP INDEX`, etc.) without a `SET lock_timeout` statement in the same migration.
+
+### Why it's relevant
+
+DDL statements acquire locks that may block indefinitely if another transaction holds a conflicting lock. Setting `lock_timeout` ensures the migration fails fast instead of blocking the entire application.
+
+### Safe pattern
+
+```python
+migrations.RunSQL(
+    sql=[
+        "SET lock_timeout = '5s';",
+        "ALTER TABLE myapp_order ADD COLUMN status VARCHAR(20);",
+    ],
+    reverse_sql="ALTER TABLE myapp_order DROP COLUMN status;",
+)
+```
+
+______________________________________________________________________
+
+## SM036: prefer_if_exists
+
+| Property      | Value         |
+| ------------- | ------------- |
+| **Rule ID**   | SM036         |
+| **Severity**  | INFO          |
+| **Category**  | informational |
+| **Databases** | All           |
+
+### What it detects
+
+`RunSQL` with `CREATE TABLE` without `IF NOT EXISTS`, or `DROP TABLE` without `IF EXISTS`.
+
+### Why it's relevant
+
+Without `IF [NOT] EXISTS`, re-running a migration (e.g., after a partial failure with `atomic=False`) will fail. Defensive DDL makes migrations idempotent and safer to retry.
+
+### Safe pattern
+
+```python
+migrations.RunSQL(
+    sql="CREATE TABLE IF NOT EXISTS myapp_cache (key TEXT PRIMARY KEY, value TEXT);",
+    reverse_sql="DROP TABLE IF EXISTS myapp_cache;",
+)
+```

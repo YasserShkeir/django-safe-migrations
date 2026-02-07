@@ -195,6 +195,36 @@ Output format:
 ::error file=myapp/migrations/0002_add_email.py,line=15::[SM001] Adding NOT NULL field 'email' without a default
 ```
 
+### GitLabReporter
+
+Outputs issues in GitLab Code Quality JSON format for merge request integration.
+
+```python
+from django_safe_migrations import MigrationAnalyzer
+from django_safe_migrations.reporters.gitlab import GitLabReporter
+
+analyzer = MigrationAnalyzer()
+issues = analyzer.analyze_all()
+
+reporter = GitLabReporter()
+reporter.report(issues)
+```
+
+### SarifReporter
+
+Outputs issues in SARIF 2.1.0 format for GitHub Code Scanning.
+
+```python
+from django_safe_migrations import MigrationAnalyzer
+from django_safe_migrations.reporters.sarif import SarifReporter
+
+analyzer = MigrationAnalyzer()
+issues = analyzer.analyze_all()
+
+reporter = SarifReporter()
+reporter.report(issues)
+```
+
 ### Using get_reporter()
 
 ```python
@@ -204,6 +234,8 @@ from django_safe_migrations.reporters import get_reporter
 reporter = get_reporter("console", show_suggestions=True)
 reporter = get_reporter("json")
 reporter = get_reporter("github")
+reporter = get_reporter("gitlab")
+reporter = get_reporter("sarif")
 ```
 
 ## Creating Custom Rules
@@ -264,4 +296,49 @@ from django_safe_migrations import (
     Severity,           # Severity enum
     __version__,        # Package version string
 )
+```
+
+## Baseline, Diff, and Interactive APIs
+
+### Baseline
+
+```python
+from django_safe_migrations.baseline import (
+    generate_baseline,
+    load_baseline,
+    filter_baselined_issues,
+)
+
+# Generate a baseline file from current issues
+analyzer = MigrationAnalyzer()
+issues = analyzer.analyze_all()
+count = generate_baseline(issues, ".migration-baseline.json")
+
+# Load and filter against baseline
+baseline = load_baseline(".migration-baseline.json")
+new_issues = filter_baselined_issues(issues, baseline)
+```
+
+### Diff Mode
+
+```python
+from django_safe_migrations.diff import (
+    get_changed_migration_files,
+    get_changed_apps_and_migrations,
+)
+
+# Get migration files changed since a branch
+files = get_changed_migration_files("main")
+
+# Get (app_label, migration_name) pairs
+changed = get_changed_apps_and_migrations("main")
+```
+
+### Interactive Mode
+
+```python
+from django_safe_migrations.interactive import review_issues_interactively
+
+# Interactively review issues (prompts on stdin)
+kept_issues = review_issues_interactively(issues)
 ```

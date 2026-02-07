@@ -7,6 +7,100 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-02-08
+
+### Documentation
+
+- Updated all documentation files to reflect v0.5.0 features (SM028-SM036, baseline, diff, interactive, watch, verbose, GitLab reporter)
+- Added 9 new rule sections to docs/rules.md (SM028-SM036)
+- Updated docs/detected-patterns.md with SM028, SM030, SM033, SM035 examples
+- Updated docs/configuration.md with new CLI options (--diff, --baseline, --interactive, --watch, --verbose, --list-rules)
+- Updated docs/api.md with GitLabReporter, SarifReporter, and baseline/diff/interactive APIs
+- Updated docs/ci_integration.md with GitLab Code Quality, diff mode, and baseline CI examples
+- Updated docs/architecture.md with new modules (baseline.py, diff.py, interactive.py, watch.py, gitlab.py)
+- Updated docs/quickstart.md and docs/troubleshooting.md with new features
+- Updated docs/index.md feature list (36 rules, new modes)
+- Added v0.5.0 and v0.6.0 roadmap documents
+
+## [0.5.0] - 2026-02-05
+
+### Added
+
+- **9 New Rules** (SM028-SM036):
+  - SM028: `prefer_bigint_over_int` — Warns when using 32-bit AutoField/IntegerField as primary key (WARNING)
+  - SM029: `drop_not_null` — Warns when AlterField changes null=False to null=True (WARNING)
+  - SM030: `require_concurrent_index_delete` — Detects RemoveIndex without CONCURRENTLY on PostgreSQL (ERROR)
+  - SM031: `prefer_text_over_varchar` — Suggests TextField over CharField on PostgreSQL (INFO)
+  - SM032: `prefer_timestamptz` — Warns about DateTimeField when USE_TZ=False (INFO)
+  - SM033: `adding_field_with_default` — Warns about NOT NULL field with Python default causing row rewrite (WARNING)
+  - SM034: `prefer_identity` — Suggests IDENTITY columns over SERIAL on PostgreSQL for Django < 4.0 (INFO)
+  - SM035: `require_lock_timeout` — Suggests setting lock_timeout for DDL in RunSQL (INFO)
+  - SM036: `prefer_if_exists` — Suggests IF [NOT] EXISTS for CREATE/DROP TABLE in RunSQL (INFO)
+
+- **Baseline Support**: Generate and use baseline files to suppress existing issues:
+  ```bash
+  python manage.py check_migrations --generate-baseline .migration-baseline.json
+  python manage.py check_migrations --baseline .migration-baseline.json
+  ```
+
+- **Diff Mode**: Only check migrations changed since a base branch:
+  ```bash
+  python manage.py check_migrations --diff
+  python manage.py check_migrations --diff main
+  ```
+
+- **Interactive Mode**: Review issues one-by-one with keep/skip/fix/quit options:
+  ```bash
+  python manage.py check_migrations --interactive
+  ```
+
+- **Watch Mode**: Continuously watch migration files and re-run analysis on changes:
+  ```bash
+  pip install django-safe-migrations[watch]
+  python manage.py check_migrations --watch
+  ```
+
+- **Verbose Mode**: Show progress information during analysis:
+  ```bash
+  python manage.py check_migrations --verbose
+  ```
+
+- **GitLab Code Quality Reporter**: Output in GitLab Code Quality format:
+  ```bash
+  python manage.py check_migrations --format=gitlab
+  ```
+
+### Changed
+
+- **SM001**: UUIDField no longer unconditionally whitelisted; now requires explicit `default` or `db_default`
+- **SM001**: Recognizes `db_default` (Django 5.0+) as a valid default
+- **SM004**: Reduced false positives with before-state resolution for AlterField
+- **SM012**: Regex narrowed to only match `ALTER TYPE ... ADD VALUE` pattern
+- **SM013**: Before-state resolution prevents false positives on increasing max_length
+- **SM019**: Removed non-reserved words from keyword list (`type`, `name`, `status`, etc.)
+- **SM020**: Before-state resolution skips if field was already NOT NULL
+- **SM021**: Before-state resolution skips if field was already unique
+- **SM022**: Uses exact match instead of substring match for slow callables
+- **SM024**: Patterns exclude LIKE and empty braces to reduce false positives
+- **SM027**: Converted from standalone function to BaseRule subclass
+
+### Fixed
+
+- **SARIF reporter**: `helpUri` now points to valid docs URL; file paths are relative with `%SRCROOT%`
+- **Console reporter**: Unicode symbols gracefully degrade on non-UTF-8 terminals
+- **GitHub reporter**: Operation strings are properly escaped in annotation titles
+- **JSON reporter**: Removed duplicate `_get_summary()`, reuses `MigrationAnalyzer.get_summary()`
+- **PostGIS detection**: `postgis` vendor now correctly maps to `postgresql` rules
+- **`get_db_vendor`**: Logs warning instead of silently returning `"unknown"` on error
+- **SM023**: Removed dead `through != "auto"` branch
+- **Suppression validation**: Warns on non-existent rule IDs in ignore comments
+
+### Improved
+
+- **Test quality**: Removed try/except/pass patterns, tautological assertions, and silent skips
+- **Integration tests**: Proper assertions instead of catch-and-ignore patterns
+- **Performance test thresholds**: Relaxed for CI runner variability
+
 ## [0.4.0] - 2026-01-20
 
 ### Added
@@ -187,7 +281,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented detailed security documentation regarding `EXTRA_RULES` and dynamic code loading.
 - Established security reporting policy.
 
-[Unreleased]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.1.2...v0.2.0

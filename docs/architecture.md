@@ -250,7 +250,7 @@ def validate_config() -> list[str]:
     ...
 ```
 
-### Reporters (`reporters.py`, `sarif_reporter.py`)
+### Reporters (`reporters.py`, `sarif_reporter.py`, `reporters/`)
 
 Format issues for output:
 
@@ -272,6 +272,11 @@ class GitHubReporter:
 
 class SARIFReporter:
     """SARIF format for code scanning."""
+    def report(self, issues: list[Issue]) -> str:
+        ...
+
+class GitLabReporter:
+    """GitLab Code Quality report format."""
     def report(self, issues: list[Issue]) -> str:
         ...
 ```
@@ -320,6 +325,8 @@ def parse_suppression_comment(comment: str) -> set[str]:
    - Use Django's MigrationLoader
    - Filter by app labels (if specified)
    - Exclude apps in EXCLUDED_APPS
+   - (Optional) Diff-based selection: use diff.py to resolve
+     only migrations changed relative to a Git ref
    │
    ▼
 5. Analyze Each Migration
@@ -334,17 +341,27 @@ def parse_suppression_comment(comment: str) -> set[str]:
    │       - Collect Issue if returned
    │
    ▼
-6. Return Issues
+6. Baseline Filtering (optional)
+   - Load baseline file via baseline.py
+   - Remove previously-known issues from results
    │
    ▼
-7. Format Output
+7. Interactive Review (optional)
+   - Present issues via interactive.py
+   - Allow user to triage, suppress, or acknowledge each issue
+   │
+   ▼
+8. Return Issues
+   │
+   ▼
+9. Format Output
    - Select reporter based on --format
    - Generate output string
    │
    ▼
-8. Exit
-   - Exit code 1 if any ERROR severity
-   - Exit code 0 otherwise
+10. Exit
+    - Exit code 1 if any ERROR severity
+    - Exit code 0 otherwise
 ```
 
 ### Rule Execution Flow
@@ -441,14 +458,20 @@ django-safe-migrations is **single-threaded**:
 django_safe_migrations/
 ├── __init__.py              # Package exports, version
 ├── analyzer.py              # Core MigrationAnalyzer
+├── baseline.py              # Baseline support for suppressing known issues
 ├── cli.py                   # Standalone CLI
 ├── conf.py                  # Configuration handling
+├── diff.py                  # Git-based diff mode for checking only changed migrations
+├── interactive.py           # Interactive review mode for triaging issues
 ├── reporters.py             # Output formatters
 ├── sarif_reporter.py        # SARIF format support
 ├── suppression.py           # Inline suppression
+├── watch.py                 # File watcher for continuous analysis (requires watchdog)
 ├── management/
 │   └── commands/
 │       └── check_migrations.py  # Django command
+├── reporters/
+│   └── gitlab.py            # GitLab Code Quality reporter
 └── rules/
     ├── __init__.py          # Rule registry
     ├── base.py              # BaseRule, Issue, Severity
