@@ -224,8 +224,8 @@ class TestAllRulesRegistry:
 
     def test_all_rules_contains_expected_count(self):
         """Test ALL_RULES contains expected number of rules."""
-        # v0.4.0 has 26 built-in rules (SM001-SM026, SM027 is graph-level)
-        assert len(ALL_RULES) == 26
+        # v0.5.0 has 36 built-in rules (SM001-SM036)
+        assert len(ALL_RULES) == 36
 
     def test_all_rules_have_unique_ids(self):
         """Test all rules have unique IDs."""
@@ -249,3 +249,18 @@ class TestAllRulesRegistry:
         assert "SM024" in rule_ids  # SQLInjectionPatternRule
         assert "SM025" in rule_ids  # ForeignKeyWithoutIndexRule
         assert "SM026" in rule_ids  # RunPythonNoBatchingRule
+
+    def test_new_v050_rules_present(self):
+        """Test v0.5.0 new rules are registered."""
+        rule_ids = {r().rule_id for r in ALL_RULES}
+
+        assert "SM027" in rule_ids  # MissingMergeMigrationRule
+        assert "SM028" in rule_ids  # PreferBigIntRule
+        assert "SM029" in rule_ids  # DropNotNullRule
+        assert "SM030" in rule_ids  # UnsafeIndexDeletionRule
+        assert "SM031" in rule_ids  # PreferTextOverVarcharRule
+        assert "SM032" in rule_ids  # PreferTimestampTZRule
+        assert "SM033" in rule_ids  # AddFieldWithDefaultRule
+        assert "SM034" in rule_ids  # PreferIdentityRule
+        assert "SM035" in rule_ids  # RequireLockTimeoutRule
+        assert "SM036" in rule_ids  # PreferIfExistsRule

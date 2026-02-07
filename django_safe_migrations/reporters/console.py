@@ -37,9 +37,15 @@ class ConsoleReporter(BaseReporter):
     }
 
     SEVERITY_SYMBOLS = {
-        Severity.ERROR: "✖",
-        Severity.WARNING: "⚠",
-        Severity.INFO: "ℹ",
+        Severity.ERROR: "X",
+        Severity.WARNING: "!",
+        Severity.INFO: "i",
+    }
+
+    SEVERITY_SYMBOLS_UNICODE = {
+        Severity.ERROR: "\u2716",
+        Severity.WARNING: "\u26a0",
+        Severity.INFO: "\u2139",
     }
 
     def __init__(
@@ -47,6 +53,7 @@ class ConsoleReporter(BaseReporter):
         stream: TextIO | None = None,
         use_color: bool | None = None,
         show_suggestions: bool = True,
+        use_unicode: bool | None = None,
     ):
         """Initialize the console reporter.
 
@@ -54,6 +61,7 @@ class ConsoleReporter(BaseReporter):
             stream: Output stream. Defaults to sys.stdout.
             use_color: Force color on/off. None = auto-detect.
             show_suggestions: Whether to show fix suggestions.
+            use_unicode: Force Unicode symbols on/off. None = auto-detect.
         """
         super().__init__(stream or sys.stdout)
         self.show_suggestions = show_suggestions
@@ -67,6 +75,28 @@ class ConsoleReporter(BaseReporter):
             )
         else:
             self.use_color = use_color
+
+        if use_unicode is None:
+            self.use_unicode = self._detect_unicode_support()
+        else:
+            self.use_unicode = use_unicode
+
+    @staticmethod
+    def _detect_unicode_support() -> bool:
+        """Detect if the terminal supports Unicode output."""
+        import locale
+
+        encoding = (
+            getattr(sys.stdout, "encoding", None) or locale.getpreferredencoding()
+        )
+        return encoding.lower().replace("-", "") in ("utf8", "utf16", "utf32")
+
+    @property
+    def _symbols(self) -> dict[Severity, str]:
+        """Return the appropriate symbol set based on Unicode support."""
+        if self.use_unicode:
+            return self.SEVERITY_SYMBOLS_UNICODE
+        return self.SEVERITY_SYMBOLS
 
     def _color(self, text: str, color: str) -> str:
         """Apply ANSI color to text.
@@ -109,7 +139,7 @@ class ConsoleReporter(BaseReporter):
 
         # Severity color and symbol
         color = self.SEVERITY_COLORS.get(issue.severity, "reset")
-        symbol = self.SEVERITY_SYMBOLS.get(issue.severity, "•")
+        symbol = self._symbols.get(issue.severity, "*")
 
         # Main line
         severity_badge = self._color(f"{symbol} {issue.severity.value.upper()}", color)
@@ -132,7 +162,8 @@ class ConsoleReporter(BaseReporter):
         # Suggestion (indented)
         if self.show_suggestions and issue.suggestion:
             lines.append("")
-            suggestion_header = self._color("   💡 Suggestion:", "green")
+            hint = "\U0001f4a1" if self.use_unicode else "*"
+            suggestion_header = self._color(f"   {hint} Suggestion:", "green")
             lines.append(suggestion_header)
             for line in issue.suggestion.strip().split("\n"):
                 lines.append(f"      {line}")
@@ -149,7 +180,8 @@ class ConsoleReporter(BaseReporter):
             The formatted report.
         """
         if not issues:
-            output = self._color("✓ No migration issues found!", "green")
+            check = "\u2713" if self.use_unicode else "*"
+            output = self._color(f"{check} No migration issues found!", "green")
             self.write(output)
             return output
 
@@ -174,7 +206,8 @@ class ConsoleReporter(BaseReporter):
                 lines.append("")  # Blank line between issues
 
         # Summary
-        lines.append(self._color("─" * 50, "gray"))
+        separator = "\u2500" if self.use_unicode else "-"
+        lines.append(self._color(separator * 50, "gray"))
         summary_parts = []
         if errors:
             summary_parts.append(self._color(f"{len(errors)} error(s)", "red"))

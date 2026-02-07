@@ -13,10 +13,13 @@ Supported formats:
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional
+
+logger = logging.getLogger("django_safe_migrations")
 
 if TYPE_CHECKING:
     from django.db.migrations import Migration
@@ -79,6 +82,18 @@ def parse_suppression_comment(line: str, line_number: int) -> Optional[Suppressi
     else:
         # Parse comma-separated rule IDs
         rules = {r.strip().upper() for r in rules_str.split(",")}
+
+        # Validate rule IDs against known rules
+        from django_safe_migrations.rules import ALL_RULES
+
+        known_ids = {cls.rule_id for cls in ALL_RULES if hasattr(cls, "rule_id")}
+        unknown = rules - known_ids
+        if unknown:
+            logger.warning(
+                "Line %d: suppression references unknown rule(s): %s",
+                line_number,
+                ", ".join(sorted(unknown)),
+            )
 
     return Suppression(
         rules=rules,

@@ -55,17 +55,37 @@ logger = logging.getLogger("django_safe_migrations")
 # Each category maps to a list of rule IDs
 RULE_CATEGORIES: dict[str, list[str]] = {
     # Database-specific rules
-    "postgresql": ["SM005", "SM010", "SM011", "SM012", "SM013", "SM018", "SM021"],
+    "postgresql": [
+        "SM005",
+        "SM010",
+        "SM011",
+        "SM012",
+        "SM013",
+        "SM018",
+        "SM021",
+        "SM030",
+        "SM031",
+        "SM034",
+    ],
     "mysql": [],  # Currently no MySQL-specific rules
     "sqlite": [],  # Currently no SQLite-specific rules
     # Operation type categories
-    "indexes": ["SM010", "SM011", "SM018", "SM021"],
+    "indexes": ["SM010", "SM011", "SM018", "SM021", "SM030"],
     "constraints": ["SM009", "SM011", "SM015", "SM017", "SM020", "SM021"],
     "destructive": ["SM002", "SM003", "SM009"],
     "relations": ["SM005", "SM023", "SM025"],
     # Safety concern categories
-    "locking": ["SM004", "SM005", "SM010", "SM011", "SM013", "SM020", "SM021"],
-    "data-loss": ["SM002", "SM003", "SM009"],
+    "locking": [
+        "SM004",
+        "SM005",
+        "SM010",
+        "SM011",
+        "SM013",
+        "SM020",
+        "SM021",
+        "SM030",
+    ],
+    "data-loss": ["SM002", "SM003", "SM009", "SM029"],
     "reversibility": ["SM007", "SM016", "SM017"],
     "data-migrations": ["SM007", "SM008", "SM016", "SM017", "SM022", "SM026"],
     "security": ["SM024"],
@@ -81,8 +101,19 @@ RULE_CATEGORIES: dict[str, list[str]] = {
         "SM021",
         "SM024",
         "SM027",
+        "SM030",
     ],
-    "informational": ["SM006", "SM014", "SM019", "SM023"],
+    "informational": [
+        "SM006",
+        "SM014",
+        "SM019",
+        "SM023",
+        "SM031",
+        "SM032",
+        "SM034",
+        "SM035",
+        "SM036",
+    ],
     # Feature categories
     "naming": ["SM019"],
     "schema-changes": [
@@ -96,8 +127,12 @@ RULE_CATEGORIES: dict[str, list[str]] = {
         "SM020",
         "SM021",
         "SM023",
+        "SM027",
+        "SM028",
+        "SM029",
+        "SM033",
     ],
-    "performance": ["SM022", "SM025", "SM026"],
+    "performance": ["SM022", "SM025", "SM026", "SM028", "SM033"],
 }
 
 # Default configuration values

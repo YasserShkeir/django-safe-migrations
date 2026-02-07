@@ -1,5 +1,7 @@
 """Tests for RunSQL and RunPython rules."""
 
+import inspect
+
 import pytest
 from django.db import migrations
 
@@ -127,6 +129,33 @@ class TestEnumAddValueInTransactionRule:
 
         assert suggestion is not None
         assert "atomic = False" in suggestion
+
+    def test_does_not_match_plain_add_value_words(self, mock_migration):
+        r"""Test that SM012 does not match 'ADD VALUE' outside ALTER TYPE context.
+
+        The v0.5.0 fix removed the broad 'add\s+value' pattern that would
+        match any SQL containing those words.
+        """
+        rule = EnumAddValueInTransactionRule()
+        operation = migrations.RunSQL(
+            sql="INSERT INTO config (key, val) VALUES ('add', 'value')",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_still_detects_alter_type_add_value(self, mock_migration):
+        """Test that SM012 still detects the full ALTER TYPE ... ADD VALUE pattern."""
+        rule = EnumAddValueInTransactionRule()
+        operation = migrations.RunSQL(
+            sql="ALTER TYPE my_enum ADD VALUE 'new_entry'",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM012"
 
 
 class TestLargeDataMigrationRule:
@@ -336,31 +365,87 @@ class TestSQLInjectionPatternRule:
         assert suggestion is not None
         assert "static" in suggestion.lower() or "parameterized" in suggestion.lower()
 
+    def test_allows_like_percent_pattern(self, mock_migration):
+        """Test that SM024 does not flag LIKE '%something%' patterns.
 
+        The v0.5.0 fix uses (?<!')%s(?!') to exclude %s inside quotes.
+        """
+        rule = SQLInjectionPatternRule()
+        operation = migrations.RunSQL(
+            sql="SELECT * FROM users WHERE email LIKE '%something%'",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_allows_empty_json_braces(self, mock_migration):
+        """Test that SM024 does not flag empty {} braces (JSON/array syntax).
+
+        The v0.5.0 fix requires an identifier inside braces: {name} not {}.
+        """
+        rule = SQLInjectionPatternRule()
+        operation = migrations.RunSQL(
+            sql="SELECT '{}'::jsonb",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_still_detects_named_format_braces(self, mock_migration):
+        """Test that SM024 still detects {user_id} format strings."""
+        rule = SQLInjectionPatternRule()
+        operation = migrations.RunSQL(
+            sql="SELECT * FROM users WHERE id = {user_id}",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM024"
+
+    def test_still_detects_bare_percent_s(self, mock_migration):
+        """Test that SM024 still detects bare %s outside quotes."""
+        rule = SQLInjectionPatternRule()
+        operation = migrations.RunSQL(
+            sql="UPDATE users SET name = %s WHERE id = 1",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM024"
+
+
+def _source_inspection_available() -> bool:
+    """Check if inspect.getsource() works in this environment."""
+    try:
+        inspect.getsource(_source_inspection_available)
+        return True
+    except OSError:
+        return False
+
+
+@pytest.mark.skipif(
+    not _source_inspection_available(),
+    reason="Source inspection not available in this environment",
+)
 class TestRunPythonNoBatchingRule:
     """Tests for RunPythonNoBatchingRule (SM026).
 
     Note: These tests rely on inspect.getsource() which may not work in all
     environments (e.g., Docker with volume-mounted code from different paths).
-    Tests gracefully skip when source inspection is unavailable.
     """
 
     def test_detects_all_without_iterator(self, mock_migration):
         """Test that rule detects .all() without .iterator()."""
-        import inspect
-
         rule = RunPythonNoBatchingRule()
 
         def migrate_data(apps, schema_editor):
             Model = apps.get_model("myapp", "Model")
             for obj in Model.objects.all():
                 obj.save()
-
-        # Check if source inspection works in this environment
-        try:
-            inspect.getsource(migrate_data)
-        except OSError:
-            pytest.skip("Source inspection not available in this environment")
 
         operation = migrations.RunPython(migrate_data)
         issue = rule.check(operation, mock_migration)
@@ -373,20 +458,12 @@ class TestRunPythonNoBatchingRule:
 
     def test_allows_all_with_iterator(self, mock_migration):
         """Test that rule allows .all() with .iterator()."""
-        import inspect
-
         rule = RunPythonNoBatchingRule()
 
         def migrate_data(apps, schema_editor):
             Model = apps.get_model("myapp", "Model")
             for obj in Model.objects.all().iterator(chunk_size=1000):
                 obj.save()
-
-        # Check if source inspection works in this environment
-        try:
-            inspect.getsource(migrate_data)
-        except OSError:
-            pytest.skip("Source inspection not available in this environment")
 
         operation = migrations.RunPython(migrate_data)
         issue = rule.check(operation, mock_migration)
@@ -395,20 +472,12 @@ class TestRunPythonNoBatchingRule:
 
     def test_allows_values_list(self, mock_migration):
         """Test that rule allows .values_list() usage."""
-        import inspect
-
         rule = RunPythonNoBatchingRule()
 
         def migrate_data(apps, schema_editor):
             Model = apps.get_model("myapp", "Model")
             ids = Model.objects.all().values_list("id", flat=True)
             return list(ids)
-
-        # Check if source inspection works in this environment
-        try:
-            inspect.getsource(migrate_data)
-        except OSError:
-            pytest.skip("Source inspection not available in this environment")
 
         operation = migrations.RunPython(migrate_data)
         issue = rule.check(operation, mock_migration)
@@ -418,8 +487,6 @@ class TestRunPythonNoBatchingRule:
 
     def test_allows_batching_pattern(self, mock_migration):
         """Test that rule allows explicit batching."""
-        import inspect
-
         rule = RunPythonNoBatchingRule()
 
         def migrate_data(apps, schema_editor):
@@ -427,12 +494,6 @@ class TestRunPythonNoBatchingRule:
             batch_size = 1000
             for batch in Model.objects.all()[:batch_size]:
                 batch.save()
-
-        # Check if source inspection works in this environment
-        try:
-            inspect.getsource(migrate_data)
-        except OSError:
-            pytest.skip("Source inspection not available in this environment")
 
         operation = migrations.RunPython(migrate_data)
         issue = rule.check(operation, mock_migration)
@@ -462,3 +523,320 @@ class TestRunPythonNoBatchingRule:
 
         assert suggestion is not None
         assert "iterator" in suggestion.lower() or "batch" in suggestion.lower()
+
+
+class TestRequireLockTimeoutRule:
+    """Tests for RequireLockTimeoutRule (SM035)."""
+
+    def test_detects_alter_table_without_lock_timeout(self, mock_migration):
+        """Test that rule detects ALTER TABLE without lock_timeout."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        rule = RequireLockTimeoutRule()
+        operation = migrations.RunSQL(
+            sql="ALTER TABLE users ADD COLUMN age INTEGER",
+            reverse_sql="ALTER TABLE users DROP COLUMN age",
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM035"
+        assert issue.severity == Severity.INFO
+        assert "lock_timeout" in issue.message.lower()
+
+    def test_detects_create_index_without_lock_timeout(self, mock_migration):
+        """Test that rule detects CREATE INDEX without lock_timeout."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        rule = RequireLockTimeoutRule()
+        operation = migrations.RunSQL(
+            sql="CREATE INDEX idx_email ON users (email)",
+            reverse_sql="DROP INDEX idx_email",
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM035"
+
+    def test_detects_drop_table_without_lock_timeout(self, mock_migration):
+        """Test that rule detects DROP TABLE without lock_timeout."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        rule = RequireLockTimeoutRule()
+        operation = migrations.RunSQL(
+            sql="DROP TABLE old_users",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM035"
+
+    def test_allows_ddl_with_lock_timeout_in_sql(self, mock_migration):
+        """Test that rule allows DDL when lock_timeout is in the SQL."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        rule = RequireLockTimeoutRule()
+        operation = migrations.RunSQL(
+            sql=[
+                "SET lock_timeout = '5s'",
+                "ALTER TABLE users ADD COLUMN age INTEGER",
+                "SET lock_timeout = '0'",
+            ],
+            reverse_sql="ALTER TABLE users DROP COLUMN age",
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_allows_ddl_with_lock_timeout_in_same_migration(
+        self, mock_migration_factory
+    ):
+        """Test that rule allows DDL when lock_timeout is in another op."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        rule = RequireLockTimeoutRule()
+        lock_timeout_op = migrations.RunSQL(sql="SET lock_timeout = '5s'")
+        ddl_op = migrations.RunSQL(
+            sql="ALTER TABLE users ADD COLUMN age INTEGER",
+            reverse_sql="ALTER TABLE users DROP COLUMN age",
+        )
+        mock_mig = mock_migration_factory(
+            operations=[lock_timeout_op, ddl_op],
+        )
+        issue = rule.check(ddl_op, mock_mig)
+
+        assert issue is None
+
+    def test_ignores_non_ddl_sql(self, mock_migration):
+        """Test that rule ignores non-DDL SQL statements."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        rule = RequireLockTimeoutRule()
+        operation = migrations.RunSQL(
+            sql="SELECT COUNT(*) FROM users",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_ignores_insert_sql(self, mock_migration):
+        """Test that rule ignores INSERT statements (not DDL)."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        rule = RequireLockTimeoutRule()
+        operation = migrations.RunSQL(
+            sql="INSERT INTO config (key, value) VALUES ('version', '1.0')",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_ignores_non_runsql_operations(
+        self, not_null_field_operation, mock_migration
+    ):
+        """Test that rule ignores non-RunSQL operations."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        rule = RequireLockTimeoutRule()
+        issue = rule.check(not_null_field_operation, mock_migration)
+
+        assert issue is None
+
+    def test_detects_create_table_without_lock_timeout(self, mock_migration):
+        """Test that rule detects CREATE TABLE without lock_timeout."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        rule = RequireLockTimeoutRule()
+        operation = migrations.RunSQL(
+            sql="CREATE TABLE temp_users (id SERIAL PRIMARY KEY)",
+            reverse_sql="DROP TABLE temp_users",
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM035"
+
+    def test_detects_truncate_without_lock_timeout(self, mock_migration):
+        """Test that rule detects TRUNCATE without lock_timeout."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        rule = RequireLockTimeoutRule()
+        operation = migrations.RunSQL(
+            sql="TRUNCATE TABLE users",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM035"
+
+    def test_provides_suggestion(self):
+        """Test that rule provides a helpful suggestion."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        rule = RequireLockTimeoutRule()
+        operation = migrations.RunSQL(
+            sql="ALTER TABLE users ADD COLUMN age INTEGER",
+        )
+        suggestion = rule.get_suggestion(operation)
+
+        assert suggestion is not None
+        assert "lock_timeout" in suggestion.lower()
+
+
+class TestPreferIfExistsRule:
+    """Tests for PreferIfExistsRule (SM036)."""
+
+    def test_detects_create_table_without_if_not_exists(self, mock_migration):
+        """Test that rule detects CREATE TABLE without IF NOT EXISTS."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql="CREATE TABLE temp_users (id SERIAL PRIMARY KEY)",
+            reverse_sql="DROP TABLE temp_users",
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM036"
+        assert issue.severity == Severity.INFO
+        assert "CREATE TABLE" in issue.message
+        assert "IF NOT EXISTS" in issue.message
+
+    def test_allows_create_table_with_if_not_exists(self, mock_migration):
+        """Test that rule allows CREATE TABLE IF NOT EXISTS."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql="CREATE TABLE IF NOT EXISTS temp_users (id SERIAL PRIMARY KEY)",
+            reverse_sql="DROP TABLE IF EXISTS temp_users",
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_detects_drop_table_without_if_exists(self, mock_migration):
+        """Test that rule detects DROP TABLE without IF EXISTS."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql="DROP TABLE old_users",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM036"
+        assert "DROP TABLE" in issue.message
+        assert "IF EXISTS" in issue.message
+
+    def test_allows_drop_table_with_if_exists(self, mock_migration):
+        """Test that rule allows DROP TABLE IF EXISTS."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql="DROP TABLE IF EXISTS old_users",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_ignores_non_table_ddl(self, mock_migration):
+        """Test that rule ignores CREATE INDEX and other non-table DDL."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql="CREATE INDEX idx_email ON users (email)",
+            reverse_sql="DROP INDEX idx_email",
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_ignores_non_runsql_operations(
+        self, not_null_field_operation, mock_migration
+    ):
+        """Test that rule ignores non-RunSQL operations."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        issue = rule.check(not_null_field_operation, mock_migration)
+
+        assert issue is None
+
+    def test_ignores_select_statements(self, mock_migration):
+        """Test that rule ignores SELECT statements."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql="SELECT * FROM users",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_case_insensitive_detection(self, mock_migration):
+        """Test that rule handles case-insensitive SQL."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql="create table temp_users (id serial primary key)",
+            reverse_sql="drop table temp_users",
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM036"
+
+    def test_case_insensitive_allows_if_not_exists(self, mock_migration):
+        """Test that rule handles case-insensitive IF NOT EXISTS."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql="create table if not exists temp_users (id serial primary key)",
+            reverse_sql="drop table if exists temp_users",
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is None
+
+    def test_handles_sql_list(self, mock_migration):
+        """Test that rule handles SQL provided as a list."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql=["CREATE TABLE temp_users (id SERIAL PRIMARY KEY)"],
+            reverse_sql=["DROP TABLE temp_users"],
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM036"
+
+    def test_provides_suggestion(self):
+        """Test that rule provides a helpful suggestion."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql="CREATE TABLE temp_users (id SERIAL PRIMARY KEY)",
+        )
+        suggestion = rule.get_suggestion(operation)
+
+        assert suggestion is not None
+        assert "IF NOT EXISTS" in suggestion
+        assert "IF EXISTS" in suggestion

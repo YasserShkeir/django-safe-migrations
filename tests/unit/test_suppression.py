@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import tempfile
 
 from django_safe_migrations.suppression import (
@@ -260,3 +261,46 @@ migrations.AddField(
             suppressions=suppressions,
         )
         assert result is True
+
+
+class TestSuppressionValidation:
+    """Tests for suppression validation of unknown rule IDs."""
+
+    def test_warns_on_unknown_rule_id(self, caplog) -> None:
+        """Test that a warning is logged for unknown rule IDs."""
+        with caplog.at_level(logging.WARNING, logger="django_safe_migrations"):
+            result = parse_suppression_comment("# safe-migrations: ignore SM999", 10)
+
+        assert result is not None
+        assert result.rules == {"SM999"}
+        assert "SM999" in caplog.text
+        assert "unknown rule" in caplog.text.lower()
+
+    def test_no_warning_for_known_rule(self, caplog) -> None:
+        """Test that no warning is logged for known rule IDs."""
+        with caplog.at_level(logging.WARNING, logger="django_safe_migrations"):
+            result = parse_suppression_comment("# safe-migrations: ignore SM001", 10)
+
+        assert result is not None
+        assert "unknown" not in caplog.text.lower()
+
+    def test_no_warning_for_ignore_all(self, caplog) -> None:
+        """Test that 'ignore all' does not trigger validation."""
+        with caplog.at_level(logging.WARNING, logger="django_safe_migrations"):
+            result = parse_suppression_comment("# safe-migrations: ignore all", 10)
+
+        assert result is not None
+        assert "unknown" not in caplog.text.lower()
+
+    def test_warns_for_mixed_known_unknown(self, caplog) -> None:
+        """Test warning when mixing known and unknown rule IDs."""
+        with caplog.at_level(logging.WARNING, logger="django_safe_migrations"):
+            result = parse_suppression_comment(
+                "# safe-migrations: ignore SM001, SM999", 5
+            )
+
+        assert result is not None
+        assert result.rules == {"SM001", "SM999"}
+        assert "SM999" in caplog.text
+        # SM001 should not be in the warning
+        assert "SM001" not in caplog.text.split("unknown")[1]

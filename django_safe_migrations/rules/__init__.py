@@ -5,12 +5,18 @@ from __future__ import annotations
 import logging
 
 from django_safe_migrations.rules.add_field import (
+    AddFieldWithDefaultRule,
     ExpensiveDefaultCallableRule,
     NotNullWithoutDefaultRule,
+    PreferBigIntRule,
+    PreferIdentityRule,
+    PreferTextOverVarcharRule,
+    PreferTimestampTZRule,
 )
 from django_safe_migrations.rules.add_index import (
     ConcurrentInAtomicMigrationRule,
     UnsafeIndexCreationRule,
+    UnsafeIndexDeletionRule,
     UnsafeUniqueConstraintRule,
 )
 from django_safe_migrations.rules.alter_field import (
@@ -19,6 +25,7 @@ from django_safe_migrations.rules.alter_field import (
     AlterFieldNullFalseRule,
     AlterFieldUniqueRule,
     AlterVarcharLengthRule,
+    DropNotNullRule,
     RenameColumnRule,
     RenameModelRule,
 )
@@ -28,6 +35,7 @@ from django_safe_migrations.rules.constraints import (
     AddUniqueConstraintRule,
     AlterUniqueTogetherRule,
 )
+from django_safe_migrations.rules.graph import MissingMergeMigrationRule
 from django_safe_migrations.rules.naming import ReservedKeywordColumnRule
 from django_safe_migrations.rules.relations import (
     AddManyToManyRule,
@@ -40,6 +48,8 @@ from django_safe_migrations.rules.remove_field import (
 from django_safe_migrations.rules.run_sql import (
     EnumAddValueInTransactionRule,
     LargeDataMigrationRule,
+    PreferIfExistsRule,
+    RequireLockTimeoutRule,
     RunPythonNoBatchingRule,
     RunPythonWithoutReverseRule,
     RunSQLWithoutReverseRule,
@@ -84,6 +94,18 @@ __all__ = [
     # SM023, SM025 - Relation rules
     "AddManyToManyRule",
     "ForeignKeyWithoutIndexRule",
+    # SM027 - Graph rules
+    "MissingMergeMigrationRule",
+    # SM028-SM036 - v0.5.0 new rules
+    "PreferBigIntRule",
+    "DropNotNullRule",
+    "UnsafeIndexDeletionRule",
+    "PreferTextOverVarcharRule",
+    "PreferTimestampTZRule",
+    "AddFieldWithDefaultRule",
+    "PreferIdentityRule",
+    "RequireLockTimeoutRule",
+    "PreferIfExistsRule",
     # Functions
     "get_all_rules",
     "get_rules_for_db",
@@ -128,7 +150,17 @@ ALL_RULES: list[type[BaseRule]] = [
     SQLInjectionPatternRule,  # SM024
     ForeignKeyWithoutIndexRule,  # SM025
     RunPythonNoBatchingRule,  # SM026
-    # Note: SM027 is a graph-level check, not an operation-level rule
+    MissingMergeMigrationRule,  # SM027 (graph-level, check() returns None)
+    # v0.5.0 new rules (SM028-SM036)
+    PreferBigIntRule,  # SM028
+    DropNotNullRule,  # SM029
+    UnsafeIndexDeletionRule,  # SM030
+    PreferTextOverVarcharRule,  # SM031
+    PreferTimestampTZRule,  # SM032
+    AddFieldWithDefaultRule,  # SM033
+    PreferIdentityRule,  # SM034
+    RequireLockTimeoutRule,  # SM035
+    PreferIfExistsRule,  # SM036
 ]
 
 logger = logging.getLogger("django_safe_migrations")

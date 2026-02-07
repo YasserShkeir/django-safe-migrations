@@ -54,19 +54,12 @@ class AddManyToManyRule(BaseRule):
         if field_type != "ManyToManyField":
             return None
 
-        # Check if it uses a custom through table
-        through = getattr(field, "through", None)
-        through_str = ""
-        if through and through != "auto":
-            # Has custom through table
-            through_str = " with custom through table"
-
         return self.create_issue(
             operation=operation,
             migration=migration,
             message=(
                 f"Adding ManyToManyField '{operation.name}' to "
-                f"'{operation.model_name}'{through_str}. "
+                f"'{operation.model_name}'. "
                 "This creates a new junction table."
             ),
         )

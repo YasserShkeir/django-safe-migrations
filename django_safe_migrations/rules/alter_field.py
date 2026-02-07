@@ -15,32 +15,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("django_safe_migrations")
 
-# Attributes that are metadata-only and don't affect the database schema
-METADATA_ONLY_ATTRIBUTES = frozenset(
-    {
-        "verbose_name",
-        "help_text",
-        "error_messages",
-        "validators",
-        "choices",
-        "editable",
-        "serialize",
-        "blank",  # Django ORM validation only, no DB change
-        "db_column",  # Only affects column name, not type
-        "db_comment",  # Comment only, no schema change
-        "db_tablespace",  # Tablespace, not column type
-    }
-)
-
-# Attributes that may change but are safe in certain directions
-SAFE_DIRECTION_ATTRIBUTES = frozenset(
-    {
-        "null",  # True is always safe to add (removing NOT NULL)
-        "default",  # Adding/changing default is typically safe
-        "max_length",  # Increasing is safe in PostgreSQL
-    }
-)
-
 
 class AlterColumnTypeRule(BaseRule):
     """Detect changing column type which may rewrite the table.
@@ -71,6 +45,21 @@ class AlterColumnTypeRule(BaseRule):
     severity = Severity.WARNING
     description = "Changing column type may rewrite table and lock it"
 
+    # Attributes that are metadata-only and don't affect the database schema
+    METADATA_ONLY_ATTRIBUTES = frozenset(
+        {
+            "verbose_name",
+            "help_text",
+            "error_messages",
+            "validators",
+            "choices",
+            "editable",
+            "serialize",
+            "blank",
+            "db_comment",
+        }
+    )
+
     def check(
         self,
         operation: Operation,
@@ -82,7 +71,7 @@ class AlterColumnTypeRule(BaseRule):
         Args:
             operation: The migration operation to check.
             migration: The migration containing the operation.
-            **kwargs: Additional context.
+            **kwargs: Additional context (may include old_field).
 
         Returns:
             An Issue if the operation is potentially unsafe, None otherwise.
@@ -92,15 +81,26 @@ class AlterColumnTypeRule(BaseRule):
 
         field = operation.field
         field_type = field.__class__.__name__
+        old_field = kwargs.get("old_field")
 
-        # Skip if this appears to be a metadata-only or safe change
-        if self._is_likely_safe_change(field):
-            logger.debug(
-                "Skipping AlterField on %s.%s - detected as safe change",
-                operation.model_name,
-                operation.name,
-            )
-            return None
+        # If we have the old field state, do precise comparison
+        if old_field is not None:
+            if self._is_safe_change_with_old_field(old_field, field):
+                logger.debug(
+                    "Skipping AlterField on %s.%s - safe change (old field known)",
+                    operation.model_name,
+                    operation.name,
+                )
+                return None
+        else:
+            # Fallback: use heuristics when old field is unavailable
+            if self._is_likely_safe_change(field):
+                logger.debug(
+                    "Skipping AlterField on %s.%s - likely safe (heuristic)",
+                    operation.model_name,
+                    operation.name,
+                )
+                return None
 
         return self.create_issue(
             operation=operation,
@@ -111,16 +111,84 @@ class AlterColumnTypeRule(BaseRule):
             ),
         )
 
+    def _is_safe_change_with_old_field(
+        self, old_field: object, new_field: object
+    ) -> bool:
+        """Check if the change is safe by comparing old and new fields.
+
+        Args:
+            old_field: The field definition before this operation.
+            new_field: The new field definition.
+
+        Returns:
+            True if the change is safe, False otherwise.
+        """
+        old_type = old_field.__class__.__name__
+        new_type = new_field.__class__.__name__
+
+        # Type change is potentially unsafe
+        if old_type != new_type:
+            return False
+
+        # Same type — check if only metadata attributes changed
+        for attr in self.METADATA_ONLY_ATTRIBUTES:
+            old_val = getattr(old_field, attr, None)
+            new_val = getattr(new_field, attr, None)
+            if old_val != new_val:
+                logger.debug(
+                    "Metadata-only attribute '%s' changed: %s -> %s",
+                    attr,
+                    old_val,
+                    new_val,
+                )
+
+        # Check if null changed (adding null=True is safe)
+        old_null = getattr(old_field, "null", False)
+        new_null = getattr(new_field, "null", False)
+        if old_null != new_null and new_null:
+            # Adding nullable — safe
+            return True
+
+        # Check if default changed (safe, metadata-only in PostgreSQL)
+        from django.db.models.fields import NOT_PROVIDED
+
+        old_default = getattr(old_field, "default", NOT_PROVIDED)
+        new_default = getattr(new_field, "default", NOT_PROVIDED)
+        if old_default != new_default and old_type == new_type:
+            # Changing default on same type is safe (no schema change)
+            # Check if anything else schema-affecting changed
+            old_null = getattr(old_field, "null", False)
+            new_null = getattr(new_field, "null", False)
+            old_max = getattr(old_field, "max_length", None)
+            new_max = getattr(new_field, "max_length", None)
+            old_unique = getattr(old_field, "unique", False)
+            new_unique = getattr(new_field, "unique", False)
+
+            if old_null == new_null and old_max == new_max and old_unique == new_unique:
+                return True
+
+        # Same type, no schema-affecting change detected
+        # Still check if there's a real schema change
+        old_null = getattr(old_field, "null", False)
+        new_null = getattr(new_field, "null", False)
+        old_max = getattr(old_field, "max_length", None)
+        new_max = getattr(new_field, "max_length", None)
+        old_unique = getattr(old_field, "unique", False)
+        new_unique = getattr(new_field, "unique", False)
+
+        if (
+            old_type == new_type
+            and old_null == new_null
+            and old_max == new_max
+            and old_unique == new_unique
+        ):
+            # No schema-affecting attributes changed — metadata only
+            return True
+
+        return False
+
     def _is_likely_safe_change(self, field: object) -> bool:
-        """Check if the field change appears to be safe.
-
-        Heuristics used to detect safe changes:
-        1. If null=True is set, this might be adding NULL (safe)
-        2. If the field type commonly has safe alterations
-
-        Since we can't know the previous field state, we use heuristics
-        based on the new field's attributes. This may have false negatives
-        but aims to reduce false positives for common safe patterns.
+        """Fallback heuristic when old field state is unavailable.
 
         Args:
             field: The new field definition.
@@ -128,24 +196,21 @@ class AlterColumnTypeRule(BaseRule):
         Returns:
             True if the change appears to be safe, False otherwise.
         """
-        # Heuristic 1: If null=True, this might be adding NULL which is safe
-        # (Removing NOT NULL constraint doesn't require table rewrite)
-        if getattr(field, "null", False) is True:
-            logger.debug("Field has null=True - likely safe (adding NULL)")
-            return True
-
-        # Heuristic 2: If this is a TextField, AlterField is usually
-        # for metadata changes since TEXT type changes are rare
         field_type = field.__class__.__name__
-        if field_type == "TextField":
-            # TextField alterations are usually metadata-only
-            # since you can't really change TEXT to something else safely
-            logger.debug("TextField alteration - likely metadata-only")
-            return True
 
-        # Heuristic 3: BooleanField/NullBooleanField changes are usually safe
+        # BooleanField/NullBooleanField alterations are usually safe
         if field_type in ("BooleanField", "NullBooleanField"):
             logger.debug("BooleanField alteration - likely safe")
+            return True
+
+        # TextField alterations are usually metadata-only
+        if field_type == "TextField":
+            logger.debug("TextField alteration - likely safe")
+            return True
+
+        # If null=True is set, the most common case is adding nullable (safe)
+        if getattr(field, "null", False):
+            logger.debug("Field has null=True - likely adding nullable")
             return True
 
         return False
@@ -411,10 +476,10 @@ class AlterVarcharLengthRule(BaseRule):
         Args:
             operation: The migration operation to check.
             migration: The migration containing the operation.
-            **kwargs: Additional context.
+            **kwargs: Additional context (may include old_field).
 
         Returns:
-            An Issue if VARCHAR length might be decreased, None otherwise.
+            An Issue if VARCHAR length is decreased, None otherwise.
         """
         if not isinstance(operation, migrations.AlterField):
             return None
@@ -426,22 +491,55 @@ class AlterVarcharLengthRule(BaseRule):
         if field_type != "CharField":
             return None
 
-        # We can't know the old max_length from the operation alone
-        # So we warn about AlterField on CharField as potentially unsafe
-        max_length = getattr(field, "max_length", None)
+        new_max_length = getattr(field, "max_length", None)
+        if new_max_length is None:
+            return None
 
-        if max_length is not None:
-            return self.create_issue(
-                operation=operation,
-                migration=migration,
-                message=(
-                    f"Altering CharField '{operation.name}' on "
-                    f"'{operation.model_name}' - if decreasing max_length, "
-                    "this will rewrite the table"
-                ),
-            )
+        old_field = kwargs.get("old_field")
 
-        return None
+        if old_field is not None:
+            old_type = old_field.__class__.__name__
+            old_max_length = getattr(old_field, "max_length", None)
+
+            # Changing from non-CharField to CharField is a type change
+            # (handled by SM004), not a length change
+            if old_type != "CharField":
+                return None
+
+            # If old max_length is known, only warn on decrease
+            if old_max_length is not None:
+                if new_max_length >= old_max_length:
+                    logger.debug(
+                        "CharField max_length increased or unchanged "
+                        "(%s -> %s) - safe",
+                        old_max_length,
+                        new_max_length,
+                    )
+                    return None
+
+                return self.create_issue(
+                    operation=operation,
+                    migration=migration,
+                    message=(
+                        f"Decreasing CharField '{operation.name}' max_length "
+                        f"on '{operation.model_name}' from {old_max_length} "
+                        f"to {new_max_length} requires table rewrite"
+                    ),
+                )
+
+            # Old field was CharField but max_length unknown (shouldn't happen)
+            # Fall through to generic warning
+
+        # Fallback: old field unavailable, warn as potentially unsafe
+        return self.create_issue(
+            operation=operation,
+            migration=migration,
+            message=(
+                f"Altering CharField '{operation.name}' on "
+                f"'{operation.model_name}' - if decreasing max_length, "
+                "this will rewrite the table"
+            ),
+        )
 
     def get_suggestion(self, operation: Operation) -> str:
         """Return suggestion for altering VARCHAR safely.
@@ -608,12 +706,12 @@ class AlterFieldNullFalseRule(BaseRule):
         migration: Migration,
         **kwargs: object,
     ) -> Optional[Issue]:
-        """Check if operation changes a field to NOT NULL.
+        """Check if operation changes a field from NULL to NOT NULL.
 
         Args:
             operation: The migration operation to check.
             migration: The migration containing the operation.
-            **kwargs: Additional context.
+            **kwargs: Additional context (may include old_field).
 
         Returns:
             An Issue if the operation adds NOT NULL constraint, None otherwise.
@@ -625,19 +723,32 @@ class AlterFieldNullFalseRule(BaseRule):
 
         # Check if the field has null=False (the default)
         is_not_null = not getattr(field, "null", False)
+        if not is_not_null:
+            return None
 
-        if is_not_null:
-            return self.create_issue(
-                operation=operation,
-                migration=migration,
-                message=(
-                    f"AlterField on '{operation.name}' sets null=False. "
-                    f"Ensure all existing rows in '{operation.model_name}' "
-                    "have non-NULL values, or the migration will fail."
-                ),
-            )
+        old_field = kwargs.get("old_field")
 
-        return None
+        if old_field is not None:
+            # Only warn if the field was previously nullable
+            was_nullable = getattr(old_field, "null", False)
+            if not was_nullable:
+                # Field was already NOT NULL — this isn't adding a constraint
+                logger.debug(
+                    "Field %s.%s was already NOT NULL, skipping SM020",
+                    operation.model_name,
+                    operation.name,
+                )
+                return None
+
+        return self.create_issue(
+            operation=operation,
+            migration=migration,
+            message=(
+                f"AlterField on '{operation.name}' sets null=False. "
+                f"Ensure all existing rows in '{operation.model_name}' "
+                "have non-NULL values, or the migration will fail."
+            ),
+        )
 
     def get_suggestion(self, operation: Operation) -> str:
         """Return suggestion for safely adding NOT NULL constraint.
@@ -711,7 +822,7 @@ class AlterFieldUniqueRule(BaseRule):
         Args:
             operation: The migration operation to check.
             migration: The migration containing the operation.
-            **kwargs: Additional context.
+            **kwargs: Additional context (may include old_field).
 
         Returns:
             An Issue if unique=True is being added, None otherwise.
@@ -723,19 +834,31 @@ class AlterFieldUniqueRule(BaseRule):
 
         # Check if unique=True is set
         is_unique = getattr(field, "unique", False)
+        if not is_unique:
+            return None
 
-        if is_unique:
-            return self.create_issue(
-                operation=operation,
-                migration=migration,
-                message=(
-                    f"Adding unique=True to '{operation.name}' on "
-                    f"'{operation.model_name}' via AlterField will scan and lock "
-                    "the entire table during index creation."
-                ),
-            )
+        old_field = kwargs.get("old_field")
 
-        return None
+        if old_field is not None:
+            # Only warn if the field was not already unique
+            was_unique = getattr(old_field, "unique", False)
+            if was_unique:
+                logger.debug(
+                    "Field %s.%s was already unique, skipping SM021",
+                    operation.model_name,
+                    operation.name,
+                )
+                return None
+
+        return self.create_issue(
+            operation=operation,
+            migration=migration,
+            message=(
+                f"Adding unique=True to '{operation.name}' on "
+                f"'{operation.model_name}' via AlterField will scan and lock "
+                "the entire table during index creation."
+            ),
+        )
 
     def get_suggestion(self, operation: Operation) -> str:
         """Return suggestion for safely adding unique constraint.
@@ -778,3 +901,106 @@ class AlterFieldUniqueRule(BaseRule):
 
 This allows index creation to happen without blocking reads/writes.
 """  # noqa: E501
+
+
+class DropNotNullRule(BaseRule):
+    """Detect AlterField changing null=False to null=True (dropping NOT NULL).
+
+    While dropping NOT NULL is generally safe from a locking perspective,
+    it can indicate an unintentional data model regression. Allowing NULL
+    values where they weren't allowed before can lead to:
+    - Application code that doesn't handle NULL values
+    - Data integrity issues
+    - Unexpected query results with NULL comparisons
+
+    This rule emits a WARNING to ensure the change is intentional.
+    """
+
+    rule_id = "SM029"
+    severity = Severity.WARNING
+    description = "Dropping NOT NULL constraint may allow unintended NULL values"
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Check if operation changes a field from NOT NULL to nullable.
+
+        Args:
+            operation: The migration operation to check.
+            migration: The migration containing the operation.
+            **kwargs: Additional context (may include old_field).
+
+        Returns:
+            An Issue if NOT NULL is being dropped, None otherwise.
+        """
+        if not isinstance(operation, migrations.AlterField):
+            return None
+
+        field = operation.field
+
+        # Check if the new field is nullable
+        is_nullable = getattr(field, "null", False)
+        if not is_nullable:
+            return None
+
+        old_field = kwargs.get("old_field")
+
+        if old_field is not None:
+            # Only warn if the field was previously NOT NULL
+            was_not_null = not getattr(old_field, "null", False)
+            if not was_not_null:
+                # Field was already nullable — no change
+                logger.debug(
+                    "Field %s.%s was already nullable, skipping SM029",
+                    operation.model_name,
+                    operation.name,
+                )
+                return None
+        else:
+            # Without old field info, we can't tell if this is a change
+            return None
+
+        return self.create_issue(
+            operation=operation,
+            migration=migration,
+            message=(
+                f"AlterField on '{operation.name}' changes "
+                f"'{operation.model_name}' from NOT NULL to nullable. "
+                "Ensure application code handles NULL values correctly."
+            ),
+        )
+
+    def get_suggestion(self, operation: Operation) -> str:
+        """Return suggestion for dropping NOT NULL safely.
+
+        Args:
+            operation: The problematic operation.
+
+        Returns:
+            A string with the suggested fix.
+        """
+        field_name = getattr(operation, "name", "field_name")
+        model_name = getattr(operation, "model_name", "model")
+
+        return f"""Before dropping NOT NULL on '{field_name}':
+
+1. Verify application code handles NULL values:
+   - Check all queries filtering on this field
+   - Check template/serializer access to this field
+   - Check any aggregations (NULL values are excluded from COUNT, etc.)
+
+2. Consider if a default value would be better:
+   migrations.AlterField(
+       model_name='{model_name}',
+       name='{field_name}',
+       field=models.FieldType(default='some_value'),
+   )
+
+3. If intentional, suppress this warning:
+   migrations.AlterField(  # safe-migrations: ignore SM029
+       ...
+   )
+"""
