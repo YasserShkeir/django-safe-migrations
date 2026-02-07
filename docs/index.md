@@ -38,11 +38,15 @@ Found 1 migration issue(s):
 
 ## Features
 
-- 🔍 **5+ built-in rules** for common issues
-- 🐘 **PostgreSQL-aware** (concurrent indexes, etc.)
-- 💡 **Fix suggestions** with safe patterns
-- 🔧 **CI/CD ready** (GitHub Actions, JSON output)
-- ⚡ **Fast** - analyzes migrations without running them
+- 🔍 **36 built-in rules** covering schema changes, locking, data loss, and best practices
+- 🐘 **PostgreSQL-aware** rules for concurrent indexes, TEXT vs VARCHAR, IDENTITY columns
+- 💡 **Fix suggestions** with safe migration patterns for every issue
+- 🔧 **CI/CD ready** — GitHub Actions, GitLab Code Quality, JSON, SARIF output
+- ⚡ **Fast** — static analysis without running migrations
+- 📊 **Baseline support** — suppress existing issues, catch only new ones
+- 🔀 **Diff mode** — only check migrations changed since a branch
+- 🖥️ **Interactive mode** — review and triage issues one-by-one
+- 👀 **Watch mode** — re-run on file changes during development
 
 ## Getting Started
 

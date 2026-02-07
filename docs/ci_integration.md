@@ -103,13 +103,27 @@ check-migrations:
   script:
     - pip install django-safe-migrations
     - pip install -r requirements.txt
-    - python manage.py check_migrations --format=json > migration-report.json
+    - python manage.py check_migrations --format=gitlab > gl-code-quality-report.json
   artifacts:
     reports:
-      codequality: migration-report.json
+      codequality: gl-code-quality-report.json
   only:
     changes:
       - "**/migrations/**"
+```
+
+> **New in v0.5.0:** Use `--format=gitlab` for native GitLab Code Quality format,
+> which integrates directly with merge request code quality widgets.
+
+```yaml
+check-migrations:
+  stage: test
+  script:
+    - pip install django-safe-migrations
+    - python manage.py check_migrations --format=gitlab > gl-code-quality-report.json
+  artifacts:
+    reports:
+      codequality: gl-code-quality-report.json
 ```
 
 ### With PostgreSQL Service
@@ -129,11 +143,11 @@ check-migrations:
   script:
     - pip install django-safe-migrations[postgres]
     - pip install -r requirements.txt
-    - python manage.py check_migrations --format=json --fail-on-warning
+    - python manage.py check_migrations --format=gitlab --fail-on-warning
   artifacts:
     when: always
     reports:
-      codequality: migration-report.json
+      codequality: gl-code-quality-report.json
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
@@ -496,4 +510,34 @@ Output:
     "by_rule": { "SM001": 1, "SM002": 1 }
   }
 }
+```
+
+## CI Best Practices
+
+### Incremental Checking with Diff Mode
+
+Use `--diff` to only check migrations changed in the current branch:
+
+```yaml
+# GitHub Actions
+- name: Check changed migrations only
+  run: python manage.py check_migrations --diff origin/main --format=github
+
+# GitLab CI
+check-migrations:
+  script:
+    - python manage.py check_migrations --diff origin/main --format=gitlab > gl-code-quality-report.json
+```
+
+### Baseline for Existing Projects
+
+When adopting django-safe-migrations on an existing project, generate a baseline to suppress known issues:
+
+```bash
+# One-time: generate baseline
+python manage.py check_migrations --generate-baseline .migration-baseline.json
+# Commit the baseline file
+
+# CI: use baseline to only catch new issues
+python manage.py check_migrations --baseline .migration-baseline.json --format=github
 ```

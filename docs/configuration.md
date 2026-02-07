@@ -290,6 +290,12 @@ python manage.py check_migrations --format=json
 
 # GitHub Actions annotations
 python manage.py check_migrations --format=github
+
+# GitLab Code Quality format
+python manage.py check_migrations --format=gitlab
+
+# SARIF for GitHub Code Scanning
+python manage.py check_migrations --format=sarif
 ```
 
 ### `--fail-on-warning`
@@ -332,6 +338,71 @@ By default, Django's built-in apps (auth, admin, etc.) are excluded. Include the
 
 ```bash
 python manage.py check_migrations --include-django-apps
+```
+
+### `--diff`
+
+Only check migrations that have changed since a base branch:
+
+```bash
+# Diff against main (default)
+python manage.py check_migrations --diff
+
+# Diff against a specific branch
+python manage.py check_migrations --diff develop
+```
+
+### `--baseline`
+
+Exclude issues that are present in a baseline file:
+
+```bash
+python manage.py check_migrations --baseline .migration-baseline.json
+```
+
+### `--generate-baseline`
+
+Generate a baseline file from current issues and exit:
+
+```bash
+python manage.py check_migrations --generate-baseline .migration-baseline.json
+```
+
+This is useful for adopting django-safe-migrations incrementally on an existing project.
+
+### `--interactive`
+
+Interactively review each issue with options to keep, skip, show fix, or quit:
+
+```bash
+python manage.py check_migrations --interactive
+```
+
+### `--verbose`
+
+Show progress information during analysis:
+
+```bash
+python manage.py check_migrations --verbose
+```
+
+### `--watch`
+
+Watch migration files for changes and re-run analysis automatically:
+
+```bash
+python manage.py check_migrations --watch
+```
+
+Requires the `watchdog` package: `pip install django-safe-migrations[watch]`
+
+### `--list-rules`
+
+List all available rules and exit:
+
+```bash
+python manage.py check_migrations --list-rules
+python manage.py check_migrations --list-rules --format=json
 ```
 
 ## Exit Codes
