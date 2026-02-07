@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Optional
 
 from django.db import migrations
@@ -11,6 +12,8 @@ from django_safe_migrations.rules.base import BaseRule, Issue, Severity
 if TYPE_CHECKING:
     from django.db.migrations import Migration
     from django.db.migrations.operations.base import Operation
+
+logger = logging.getLogger("django_safe_migrations")
 
 
 class NotNullWithoutDefaultRule(BaseRule):
@@ -66,12 +69,24 @@ class NotNullWithoutDefaultRule(BaseRule):
         if not has_default and hasattr(field, "has_default"):
             has_default = field.has_default()
 
+        # Check for db_default (Django 5.0+)
+        db_default = getattr(field, "db_default", None)
+        if db_default is not None:
+            # db_default uses a sentinel NOT_PROVIDED value in Django 5.0+
+            try:
+                from django.db.models.fields import NOT_PROVIDED as DB_NOT_PROVIDED
+
+                if db_default is not DB_NOT_PROVIDED:
+                    has_default = True
+            except ImportError:
+                # Pre-Django 5.0, db_default doesn't exist
+                has_default = True
+
         # Primary keys and auto fields are OK
         is_auto = getattr(field, "primary_key", False) or field.__class__.__name__ in (
             "AutoField",
             "BigAutoField",
             "SmallAutoField",
-            "UUIDField",  # with default=uuid.uuid4
         )
 
         # OneToOneField and ForeignKey with db_constraint=False are special
@@ -222,11 +237,9 @@ class ExpensiveDefaultCallableRule(BaseRule):
         if callable_name in self.FAST_CALLABLES or full_name in self.FAST_CALLABLES:
             return None
 
-        # Check if it's a known slow callable
+        # Check if it's a known slow callable (exact match only)
         is_slow = (
-            callable_name in self.SLOW_CALLABLES
-            or full_name in self.SLOW_CALLABLES
-            or any(slow in full_name for slow in self.SLOW_CALLABLES)
+            callable_name in self.SLOW_CALLABLES or full_name in self.SLOW_CALLABLES
         )
 
         if is_slow:
@@ -301,4 +314,477 @@ If exact timestamp isn't required, use a static value:
         name='{field_name}',
         field=models.DateTimeField(default=datetime.datetime(2024, 1, 1)),
     )
+"""
+
+
+class PreferBigIntRule(BaseRule):
+    """Detect AutoField or IntegerField used as primary key.
+
+    32-bit integer primary keys (AutoField, IntegerField with primary_key=True)
+    can overflow at ~2.1 billion rows. For new tables, BigAutoField or
+    BigIntegerField should be preferred to avoid costly future migrations.
+
+    Safe pattern:
+    Use BigAutoField or BigIntegerField for primary keys, or set
+    DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField' in settings.
+    """
+
+    rule_id = "SM028"
+    severity = Severity.WARNING
+    description = "Prefer BigAutoField/BigIntegerField over 32-bit primary keys"
+
+    # 32-bit auto/int field types that may overflow
+    SMALL_PK_TYPES = frozenset(
+        {
+            "AutoField",
+            "SmallAutoField",
+        }
+    )
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Check if operation uses a 32-bit integer primary key.
+
+        Args:
+            operation: The migration operation to check.
+            migration: The migration containing the operation.
+            **kwargs: Additional context.
+
+        Returns:
+            An Issue if a small PK type is used, None otherwise.
+        """
+        # Check AddField with primary_key=True
+        if isinstance(operation, migrations.AddField):
+            field = operation.field
+            field_type = field.__class__.__name__
+            is_pk = getattr(field, "primary_key", False)
+
+            if is_pk and field_type in self.SMALL_PK_TYPES:
+                return self.create_issue(
+                    operation=operation,
+                    migration=migration,
+                    message=(
+                        f"Field '{operation.name}' on '{operation.model_name}' "
+                        f"uses {field_type} as primary key. Consider using "
+                        "BigAutoField to avoid overflow at ~2.1 billion rows."
+                    ),
+                )
+
+        # Check CreateModel for pk fields in the fields list
+        if isinstance(operation, migrations.CreateModel):
+            model_name = getattr(operation, "name", "unknown")
+            fields = getattr(operation, "fields", [])
+            for field_name, field in fields:
+                field_type = field.__class__.__name__
+                is_pk = getattr(field, "primary_key", False)
+                if is_pk and field_type in self.SMALL_PK_TYPES:
+                    return self.create_issue(
+                        operation=operation,
+                        migration=migration,
+                        message=(
+                            f"Field '{field_name}' on '{model_name}' uses "
+                            f"{field_type} as primary key. Consider using "
+                            "BigAutoField to avoid overflow at ~2.1 billion rows."
+                        ),
+                    )
+
+        return None
+
+    def get_suggestion(self, operation: Operation) -> str:
+        """Return suggestion for using BigAutoField.
+
+        Args:
+            operation: The problematic operation.
+
+        Returns:
+            A string with the suggested fix.
+        """
+        return """Use BigAutoField instead of AutoField for primary keys:
+
+1. In your model:
+   class MyModel(models.Model):
+       id = models.BigAutoField(primary_key=True)
+
+2. Or set the project-wide default in settings.py:
+   DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+BigAutoField uses 64-bit integers, supporting up to ~9.2 quintillion rows.
+"""
+
+
+class PreferTextOverVarcharRule(BaseRule):
+    """Detect CharField (VARCHAR) usage on PostgreSQL.
+
+    In PostgreSQL, there is no performance difference between VARCHAR(N)
+    and TEXT. Using TEXT avoids future migrations to increase max_length.
+
+    This is an informational rule specific to PostgreSQL.
+    """
+
+    rule_id = "SM031"
+    severity = Severity.INFO
+    description = "Consider using TextField instead of CharField on PostgreSQL"
+    db_vendors = ["postgresql"]
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Check if AddField uses CharField on PostgreSQL.
+
+        Args:
+            operation: The migration operation to check.
+            migration: The migration containing the operation.
+            **kwargs: Additional context.
+
+        Returns:
+            An Issue if CharField is used, None otherwise.
+        """
+        if not isinstance(operation, migrations.AddField):
+            return None
+
+        field = operation.field
+        field_type = field.__class__.__name__
+
+        if field_type != "CharField":
+            return None
+
+        # Skip if max_length is small (likely intentional, e.g. status codes)
+        max_length = getattr(field, "max_length", None)
+        if max_length is not None and max_length <= 32:
+            return None
+
+        return self.create_issue(
+            operation=operation,
+            migration=migration,
+            message=(
+                f"Field '{operation.name}' on '{operation.model_name}' uses "
+                f"CharField(max_length={max_length}). On PostgreSQL, TextField "
+                "has identical performance and avoids length-change migrations."
+            ),
+        )
+
+    def get_suggestion(self, operation: Operation) -> str:
+        """Return suggestion for using TextField.
+
+        Args:
+            operation: The problematic operation.
+
+        Returns:
+            A string with the suggested fix.
+        """
+        return """On PostgreSQL, TEXT and VARCHAR(N) have identical performance.
+
+Consider using TextField instead of CharField:
+
+    # Instead of:
+    field = models.CharField(max_length=255)
+
+    # Use:
+    field = models.TextField()
+
+    # If you need length validation, use MaxLengthValidator:
+    from django.core.validators import MaxLengthValidator
+    field = models.TextField(validators=[MaxLengthValidator(255)])
+
+This avoids future migrations when max_length needs to increase.
+"""
+
+
+class PreferTimestampTZRule(BaseRule):
+    """Detect DateTimeField when USE_TZ is False.
+
+    When USE_TZ is False, Django stores naive datetimes. This can
+    cause issues with daylight saving time transitions and makes
+    it harder to support multiple timezones later.
+
+    This is an informational rule to encourage timezone-aware datetimes.
+    """
+
+    rule_id = "SM032"
+    severity = Severity.INFO
+    description = "DateTimeField with USE_TZ=False stores naive datetimes"
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Check if DateTimeField is added when USE_TZ is False.
+
+        Args:
+            operation: The migration operation to check.
+            migration: The migration containing the operation.
+            **kwargs: Additional context.
+
+        Returns:
+            An Issue if USE_TZ is False, None otherwise.
+        """
+        if not isinstance(operation, migrations.AddField):
+            return None
+
+        field = operation.field
+        field_type = field.__class__.__name__
+
+        if field_type != "DateTimeField":
+            return None
+
+        from django.conf import settings
+
+        if getattr(settings, "USE_TZ", True):
+            return None
+
+        return self.create_issue(
+            operation=operation,
+            migration=migration,
+            message=(
+                f"DateTimeField '{operation.name}' on '{operation.model_name}' "
+                "will store naive datetimes because USE_TZ=False. Consider "
+                "enabling USE_TZ for timezone-aware storage."
+            ),
+        )
+
+    def get_suggestion(self, operation: Operation) -> str:
+        """Return suggestion for enabling USE_TZ.
+
+        Args:
+            operation: The problematic operation.
+
+        Returns:
+            A string with the suggested fix.
+        """
+        return """Enable timezone support in settings.py:
+
+    USE_TZ = True
+
+This stores datetimes as UTC in the database (TIMESTAMP WITH TIME ZONE
+on PostgreSQL) and converts to the local timezone for display.
+
+Benefits:
+- Correct handling of daylight saving time transitions
+- Easy support for multiple timezones
+- Consistent datetime storage across the application
+"""
+
+
+class AddFieldWithDefaultRule(BaseRule):
+    """Detect adding NOT NULL field with a Python-level default.
+
+    When adding a NOT NULL field with a default value, Django:
+    1. Adds the column with the default
+    2. For each existing row, writes the default value
+
+    On large tables, this can be very slow because Django applies the
+    default in Python rather than using a database-level DEFAULT clause.
+
+    Safe pattern:
+    - Add the field as nullable first
+    - Backfill existing rows in batches
+    - Then set NOT NULL
+    """
+
+    rule_id = "SM033"
+    severity = Severity.WARNING
+    description = "Adding NOT NULL field with default rewrites all existing rows"
+
+    # Auto fields don't need this check
+    AUTO_FIELD_TYPES = frozenset(
+        {
+            "AutoField",
+            "BigAutoField",
+            "SmallAutoField",
+        }
+    )
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Check if operation adds a NOT NULL field with a default.
+
+        Args:
+            operation: The migration operation to check.
+            migration: The migration containing the operation.
+            **kwargs: Additional context.
+
+        Returns:
+            An Issue if a NOT NULL field has a Python-level default.
+        """
+        if not isinstance(operation, migrations.AddField):
+            return None
+
+        field = operation.field
+        field_type = field.__class__.__name__
+
+        # Skip auto fields
+        if field_type in self.AUTO_FIELD_TYPES:
+            return None
+
+        # Skip nullable fields (they don't rewrite rows)
+        if getattr(field, "null", False):
+            return None
+
+        # Check if field has a default
+        from django.db.models.fields import NOT_PROVIDED
+
+        default_value = getattr(field, "default", NOT_PROVIDED)
+        if default_value is NOT_PROVIDED:
+            return None
+
+        # Check for db_default (Django 5.0+) — if db_default is set,
+        # the database handles it efficiently
+        db_default = getattr(field, "db_default", NOT_PROVIDED)
+        if db_default is not NOT_PROVIDED:
+            return None
+
+        return self.create_issue(
+            operation=operation,
+            migration=migration,
+            message=(
+                f"Adding NOT NULL field '{operation.name}' on "
+                f"'{operation.model_name}' with a default value will rewrite "
+                "all existing rows. On large tables, add as nullable first, "
+                "backfill, then set NOT NULL."
+            ),
+        )
+
+    def get_suggestion(self, operation: Operation) -> str:
+        """Return suggestion for adding fields with defaults safely.
+
+        Args:
+            operation: The problematic operation.
+
+        Returns:
+            A string with the suggested fix.
+        """
+        field_name = getattr(operation, "name", "field_name")
+        model_name = getattr(operation, "model_name", "model")
+
+        return f"""Safe pattern for adding NOT NULL field with default:
+
+1. Add field as nullable (instant, no row rewrite):
+   migrations.AddField(
+       model_name='{model_name}',
+       name='{field_name}',
+       field=models.FieldType(null=True),
+   )
+
+2. Backfill existing rows in batches:
+   def backfill(apps, schema_editor):
+       Model = apps.get_model('app', '{model_name}')
+       batch_size = 1000
+       while Model.objects.filter({field_name}__isnull=True).exists():
+           ids = list(Model.objects.filter({field_name}__isnull=True)
+                      .values_list('id', flat=True)[:batch_size])
+           Model.objects.filter(id__in=ids).update({field_name}=default_val)
+
+3. Set NOT NULL in a separate migration:
+   migrations.AlterField(
+       model_name='{model_name}',
+       name='{field_name}',
+       field=models.FieldType(null=False, default=default_val),
+   )
+
+Alternative (Django 5.0+): Use db_default for database-level defaults:
+   field=models.IntegerField(db_default=0)
+"""
+
+
+class PreferIdentityRule(BaseRule):
+    """Detect AutoField/BigAutoField on PostgreSQL with Django < 4.0.
+
+    Before Django 4.0, AutoField/BigAutoField used SERIAL/BIGSERIAL
+    columns in PostgreSQL. Starting with Django 4.0, they use IDENTITY
+    columns which are the PostgreSQL-recommended approach.
+
+    If you're on Django < 4.0, consider using IDENTITY columns via RunSQL.
+    """
+
+    rule_id = "SM034"
+    severity = Severity.INFO
+    description = "Consider IDENTITY columns instead of SERIAL on PostgreSQL"
+    db_vendors = ["postgresql"]
+
+    AUTO_FIELD_TYPES = frozenset(
+        {
+            "AutoField",
+            "BigAutoField",
+            "SmallAutoField",
+        }
+    )
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Check if auto fields use SERIAL on older Django.
+
+        Args:
+            operation: The migration operation to check.
+            migration: The migration containing the operation.
+            **kwargs: Additional context.
+
+        Returns:
+            An Issue if Django < 4.0 and using auto fields.
+        """
+        import django
+
+        if django.VERSION >= (4, 0):
+            return None
+
+        if not isinstance(operation, migrations.AddField):
+            return None
+
+        field = operation.field
+        field_type = field.__class__.__name__
+
+        if field_type not in self.AUTO_FIELD_TYPES:
+            return None
+
+        return self.create_issue(
+            operation=operation,
+            migration=migration,
+            message=(
+                f"Field '{operation.name}' on '{operation.model_name}' uses "
+                f"{field_type} which creates a SERIAL column on PostgreSQL. "
+                "IDENTITY columns are recommended. Upgrade to Django 4.0+ "
+                "for automatic IDENTITY column support."
+            ),
+        )
+
+    def get_suggestion(self, operation: Operation) -> str:
+        """Return suggestion for using IDENTITY columns.
+
+        Args:
+            operation: The problematic operation.
+
+        Returns:
+            A string with the suggested fix.
+        """
+        return """PostgreSQL IDENTITY columns vs SERIAL:
+
+SERIAL columns have ownership issues and are considered legacy.
+IDENTITY columns (PostgreSQL 10+) are the recommended approach.
+
+Option 1: Upgrade to Django 4.0+ (recommended)
+   Django 4.0+ automatically uses IDENTITY columns.
+
+Option 2: Use RunSQL to create IDENTITY columns manually:
+   migrations.RunSQL(
+       sql='ALTER TABLE myapp_model ALTER COLUMN id '
+           'ADD GENERATED BY DEFAULT AS IDENTITY',
+       reverse_sql='ALTER TABLE myapp_model ALTER COLUMN id '
+                   'DROP IDENTITY',
+   )
 """

@@ -223,3 +223,104 @@ class TestConcurrentInAtomicMigrationRule:
 
         assert issue is not None
         assert issue.rule_id == "SM018"
+
+
+class TestUnsafeIndexDeletionRule:
+    """Tests for UnsafeIndexDeletionRule (SM030)."""
+
+    def test_detects_remove_index(self, mock_migration):
+        """Test that rule detects RemoveIndex operations."""
+        from django_safe_migrations.rules.add_index import UnsafeIndexDeletionRule
+
+        rule = UnsafeIndexDeletionRule()
+        operation = migrations.RemoveIndex(
+            model_name="user",
+            name="user_email_idx",
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM030"
+        assert issue.severity == Severity.ERROR
+        assert "user_email_idx" in issue.message
+        assert "CONCURRENTLY" in issue.message
+
+    def test_allows_remove_index_concurrently(self, mock_migration):
+        """Test that rule allows RemoveIndexConcurrently."""
+        from django_safe_migrations.rules.add_index import UnsafeIndexDeletionRule
+
+        rule = UnsafeIndexDeletionRule()
+
+        # Create a real subclass that mimics RemoveIndexConcurrently
+        class RemoveIndexConcurrently(migrations.RemoveIndex):
+            """Fake RemoveIndexConcurrently for testing."""
+
+            pass
+
+        operation = RemoveIndexConcurrently(
+            model_name="user",
+            name="user_email_idx",
+        )
+        issue = rule.check(operation, mock_migration)
+
+        # RemoveIndexConcurrently should be allowed
+        assert issue is None
+
+    def test_ignores_non_removeindex_operations(
+        self, not_null_field_operation, mock_migration
+    ):
+        """Test that rule ignores non-RemoveIndex operations."""
+        from django_safe_migrations.rules.add_index import UnsafeIndexDeletionRule
+
+        rule = UnsafeIndexDeletionRule()
+        issue = rule.check(not_null_field_operation, mock_migration)
+
+        assert issue is None
+
+    def test_ignores_add_index_operations(self, add_index_operation, mock_migration):
+        """Test that rule ignores AddIndex operations."""
+        from django_safe_migrations.rules.add_index import UnsafeIndexDeletionRule
+
+        rule = UnsafeIndexDeletionRule()
+        issue = rule.check(add_index_operation, mock_migration)
+
+        assert issue is None
+
+    def test_only_applies_to_postgresql(self):
+        """Test that rule only applies to PostgreSQL."""
+        from django_safe_migrations.rules.add_index import UnsafeIndexDeletionRule
+
+        rule = UnsafeIndexDeletionRule()
+        assert rule.applies_to_db("postgresql") is True
+        assert rule.applies_to_db("mysql") is False
+        assert rule.applies_to_db("sqlite") is False
+
+    def test_provides_suggestion(self):
+        """Test that rule provides a helpful suggestion."""
+        from django_safe_migrations.rules.add_index import UnsafeIndexDeletionRule
+
+        rule = UnsafeIndexDeletionRule()
+        operation = migrations.RemoveIndex(
+            model_name="user",
+            name="user_email_idx",
+        )
+        suggestion = rule.get_suggestion(operation)
+
+        assert suggestion is not None
+        assert "RemoveIndexConcurrently" in suggestion
+        assert "atomic = False" in suggestion or "atomic=False" in suggestion
+
+    def test_includes_index_name_in_message(self, mock_migration):
+        """Test that the issue message includes the index name."""
+        from django_safe_migrations.rules.add_index import UnsafeIndexDeletionRule
+
+        rule = UnsafeIndexDeletionRule()
+        operation = migrations.RemoveIndex(
+            model_name="order",
+            name="order_created_at_idx",
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert "order_created_at_idx" in issue.message
+        assert "order" in issue.message

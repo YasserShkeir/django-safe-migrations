@@ -55,8 +55,15 @@ class GitHubReporter(BaseReporter):
         if issue.line_number:
             params.append(f"line={issue.line_number}")
 
-        # Title includes rule ID
-        title = f"[{issue.rule_id}] {issue.operation}"
+        # Title includes rule ID and operation (if available)
+        title_parts = [f"[{issue.rule_id}]"]
+        if issue.operation:
+            title_parts.append(str(issue.operation))
+        title = " ".join(title_parts)
+        # Escape special characters in title
+        title = title.replace("%", "%25")
+        title = title.replace("\n", "%0A")
+        title = title.replace("\r", "%0D")
         params.append(f"title={title}")
 
         params_str = ",".join(params)

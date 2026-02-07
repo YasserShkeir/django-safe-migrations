@@ -19,8 +19,9 @@ logger = logging.getLogger("django_safe_migrations")
 class UnsafeIndexCreationRule(BaseRule):
     """Detect index creation that will block writes.
 
-    Creating an index on PostgreSQL takes an ACCESS EXCLUSIVE lock
-    on the table, blocking all reads and writes until complete.
+    Creating an index on PostgreSQL takes a SHARE lock on the table,
+    blocking all writes (INSERT/UPDATE/DELETE) until complete. Reads
+    are not blocked.
 
     For large tables, this can take minutes or hours.
 
@@ -340,4 +341,89 @@ Correct migration:
 
 Note: When atomic = False, each operation runs in its own transaction.
 If any operation fails, previous operations will NOT be rolled back.
+"""
+
+
+class UnsafeIndexDeletionRule(BaseRule):
+    """Detect index removal without CONCURRENTLY on PostgreSQL.
+
+    Removing an index on PostgreSQL takes an ACCESS EXCLUSIVE lock,
+    blocking all reads and writes. For large tables, this can cause
+    significant downtime.
+
+    Safe pattern (PostgreSQL):
+    Use RemoveIndexConcurrently from django.contrib.postgres.operations.
+    """
+
+    rule_id = "SM030"
+    severity = Severity.ERROR
+    description = "Index removal without CONCURRENTLY will lock table"
+    db_vendors = ["postgresql"]
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Check if RemoveIndex is used without CONCURRENTLY.
+
+        Args:
+            operation: The migration operation to check.
+            migration: The migration containing the operation.
+            **kwargs: Additional context.
+
+        Returns:
+            An Issue if RemoveIndex is used without CONCURRENTLY.
+        """
+        if not isinstance(operation, migrations.RemoveIndex):
+            return None
+
+        # Check if it's actually RemoveIndexConcurrently
+        op_class_name = type(operation).__name__
+        if op_class_name == "RemoveIndexConcurrently":
+            return None
+
+        model_name = getattr(operation, "model_name", "unknown")
+        index_name = getattr(operation, "name", "unknown")
+
+        return self.create_issue(
+            operation=operation,
+            migration=migration,
+            message=(
+                f"Removing index '{index_name}' on '{model_name}' without "
+                "CONCURRENTLY will lock the table for reads and writes."
+            ),
+        )
+
+    def get_suggestion(self, operation: Operation) -> str:
+        """Return suggestion for removing indexes concurrently.
+
+        Args:
+            operation: The problematic operation.
+
+        Returns:
+            A string with the suggested fix.
+        """
+        model_name = getattr(operation, "model_name", "model")
+        index_name = getattr(operation, "name", "index_name")
+
+        return f"""Safe pattern for removing an index on PostgreSQL:
+
+Use RemoveIndexConcurrently (requires atomic=False):
+
+    from django.contrib.postgres.operations import RemoveIndexConcurrently
+
+    class Migration(migrations.Migration):
+        atomic = False  # Required for concurrent operations
+
+        operations = [
+            RemoveIndexConcurrently(
+                model_name='{model_name}',
+                name='{index_name}',
+            ),
+        ]
+
+Note: CONCURRENTLY avoids blocking reads and writes during removal.
+The migration must have atomic=False.
 """

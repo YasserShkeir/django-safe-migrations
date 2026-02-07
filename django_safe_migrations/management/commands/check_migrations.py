@@ -12,7 +12,7 @@ from django_safe_migrations.analyzer import MigrationAnalyzer
 from django_safe_migrations.conf import get_category_for_rule, log_config_warnings
 from django_safe_migrations.reporters import get_reporter
 from django_safe_migrations.rules import ALL_RULES, _load_extra_rules
-from django_safe_migrations.rules.base import Severity
+from django_safe_migrations.rules.base import Issue, Severity
 
 
 class Command(BaseCommand):
@@ -30,6 +30,9 @@ class Command(BaseCommand):
         python manage.py check_migrations myapp
         python manage.py check_migrations --new-only
         python manage.py check_migrations --format=json
+        python manage.py check_migrations --format=gitlab
+        python manage.py check_migrations --interactive
+        python manage.py check_migrations --diff main
     """
 
     help = "Check migrations for unsafe operations"
@@ -47,7 +50,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--format",
-            choices=["console", "json", "github", "sarif"],
+            choices=["console", "json", "github", "gitlab", "sarif"],
             default="console",
             help="Output format (default: console)",
         )
@@ -87,6 +90,43 @@ class Command(BaseCommand):
             "--list-rules",
             action="store_true",
             help="List all available rules and exit",
+        )
+        parser.add_argument(
+            "--verbose",
+            action="store_true",
+            help="Show progress information during analysis",
+        )
+        parser.add_argument(
+            "--interactive",
+            action="store_true",
+            help="Interactively review each issue",
+        )
+        parser.add_argument(
+            "--diff",
+            nargs="?",
+            const="main",
+            default=None,
+            metavar="BASE_REF",
+            help="Only check migrations changed since BASE_REF (default: main)",
+        )
+        parser.add_argument(
+            "--baseline",
+            type=str,
+            default=None,
+            metavar="FILE",
+            help="Exclude issues present in baseline file",
+        )
+        parser.add_argument(
+            "--generate-baseline",
+            type=str,
+            default=None,
+            metavar="FILE",
+            help="Generate baseline file from current issues and exit",
+        )
+        parser.add_argument(
+            "--watch",
+            action="store_true",
+            help="Watch migration files for changes and re-run analysis",
         )
 
     def list_rules(self, output_format: str) -> None:
@@ -149,6 +189,13 @@ class Command(BaseCommand):
         # Validate configuration and log any warnings
         log_config_warnings()
 
+        # Handle --watch mode
+        if options.get("watch"):
+            from django_safe_migrations.watch import watch_migrations
+
+            watch_migrations()
+            return
+
         app_labels = options["app_labels"]
         output_file = options["output"]
         fail_on_warning = options["fail_on_warning"]
@@ -156,6 +203,7 @@ class Command(BaseCommand):
         show_suggestions = not options["no_suggestions"]
         exclude_apps = options["exclude_apps"]
         include_django_apps = options["include_django_apps"]
+        verbose = options.get("verbose", False)
 
         # Build exclude list
         if not include_django_apps:
@@ -170,26 +218,69 @@ class Command(BaseCommand):
             exclude_apps = list(set(exclude_apps + django_apps))
 
         # Create analyzer
-        analyzer = MigrationAnalyzer()
+        analyzer = MigrationAnalyzer(verbose=verbose)
 
         # Collect issues
-        issues = []
+        issues: list[Issue] = []
 
-        if new_only:
-            # Only check unapplied migrations
+        diff_ref = options.get("diff")
+        if diff_ref is not None:
+            from django_safe_migrations.diff import get_changed_apps_and_migrations
+
+            changed = get_changed_apps_and_migrations(diff_ref)
+            if verbose:
+                self.stderr.write(
+                    f"Diff mode: checking {len(changed)} changed migration(s)"
+                )
+            for app_label, migration_name in changed:
+                if app_label not in exclude_apps:
+                    app_issues = analyzer.analyze_app(app_label)
+                    issues.extend(
+                        i for i in app_issues if i.migration_name == migration_name
+                    )
+        elif new_only:
             if app_labels:
                 for app_label in app_labels:
                     issues.extend(analyzer.analyze_new_migrations(app_label))
             else:
                 issues.extend(analyzer.analyze_new_migrations())
         elif app_labels:
-            # Check specific apps
             for app_label in app_labels:
                 if app_label not in exclude_apps:
                     issues.extend(analyzer.analyze_app(app_label))
         else:
-            # Check all apps
             issues.extend(analyzer.analyze_all(exclude_apps=exclude_apps))
+
+        # Apply baseline filtering
+        baseline_path = options.get("baseline")
+        if baseline_path:
+            from django_safe_migrations.baseline import (
+                filter_baselined_issues,
+                load_baseline,
+            )
+
+            baseline = load_baseline(baseline_path)
+            issues = filter_baselined_issues(issues, baseline)
+
+        # Handle --generate-baseline
+        generate_baseline_path = options.get("generate_baseline")
+        if generate_baseline_path:
+            from django_safe_migrations.baseline import generate_baseline
+
+            count = generate_baseline(issues, generate_baseline_path)
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Generated baseline with {count} issue(s) "
+                    f"at {generate_baseline_path}"
+                )
+            )
+            return
+
+        # Interactive mode
+        if options.get("interactive"):
+            from django_safe_migrations.interactive import review_issues_interactively
+
+            issues = review_issues_interactively(issues)
 
         # Determine output stream
         output_stream: IO[str]

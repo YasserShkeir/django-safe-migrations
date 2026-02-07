@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from typing import TYPE_CHECKING, Any, Optional
 
 from django_safe_migrations.conf import (
@@ -20,6 +21,7 @@ from django_safe_migrations.utils import (
     get_db_vendor,
     get_migration_file_path,
     get_operation_line_number,
+    resolve_field_before_operation,
 )
 
 if TYPE_CHECKING:
@@ -55,6 +57,7 @@ class MigrationAnalyzer:
         rules: Optional[list[BaseRule]] = None,
         db_vendor: Optional[str] = None,
         disabled_rules: Optional[list[str]] = None,
+        verbose: bool = False,
     ):
         """Initialize the analyzer.
 
@@ -65,9 +68,11 @@ class MigrationAnalyzer:
                        it will be detected from Django settings.
             disabled_rules: List of rule IDs to disable. If None, uses
                            SAFE_MIGRATIONS["DISABLED_RULES"] from settings.
+            verbose: If True, print progress information to stderr.
         """
         self.db_vendor = db_vendor or get_db_vendor()
         self._disabled_rules = disabled_rules
+        self.verbose = verbose
         self.rules = rules or get_all_rules(self.db_vendor)
         logger.debug(
             "Initialized analyzer: db_vendor=%s, rules=%d, disabled_rules=%s",
@@ -166,10 +171,30 @@ class MigrationAnalyzer:
                         )
                         continue
 
+                # Resolve old field state for AlterField operations
+                rule_kwargs: dict[str, object] = {
+                    "db_vendor": self.db_vendor,
+                }
+                from django.db import migrations as mig_module
+
+                if (
+                    isinstance(operation, mig_module.AlterField)
+                    and app_label
+                    and migration_name
+                ):
+                    old_field = resolve_field_before_operation(
+                        app_label=app_label,
+                        migration_name=migration_name,
+                        operation_index=idx,
+                        model_name=operation.model_name,
+                        field_name=operation.name,
+                    )
+                    rule_kwargs["old_field"] = old_field
+
                 issue = rule.check(
                     operation=operation,
                     migration=migration,
-                    db_vendor=self.db_vendor,
+                    **rule_kwargs,
                 )
 
                 if issue:
@@ -229,6 +254,11 @@ class MigrationAnalyzer:
         # Sort by migration name
         app_migrations.sort(key=lambda x: x[0])
         logger.debug("Analyzing app %s: %d migrations", app_label, len(app_migrations))
+        if self.verbose:
+            print(
+                f"  Checking {app_label} ({len(app_migrations)} migrations)...",
+                file=sys.stderr,
+            )
 
         for name, migration in app_migrations:
             issues.extend(
@@ -272,6 +302,14 @@ class MigrationAnalyzer:
             exclude_apps,
         )
 
+        checked_apps = sorted(a for a in apps_with_migrations if a not in exclude_apps)
+        if self.verbose:
+            print(
+                f"Analyzing {len(checked_apps)} app(s) "
+                f"({len(apps_with_migrations) - len(checked_apps)} excluded)...",
+                file=sys.stderr,
+            )
+
         for app_label in sorted(apps_with_migrations):
             if app_label in exclude_apps:
                 logger.debug("Skipping excluded app: %s", app_label)
@@ -279,6 +317,8 @@ class MigrationAnalyzer:
             issues.extend(self.analyze_app(app_label))
 
         logger.info("Analysis complete: %d total issues found", len(issues))
+        if self.verbose:
+            print(f"Analysis complete: {len(issues)} issue(s) found", file=sys.stderr)
         return issues
 
     def analyze_new_migrations(
@@ -335,7 +375,8 @@ class MigrationAnalyzer:
         )
         return issues
 
-    def get_summary(self, issues: list[Issue]) -> dict[str, Any]:
+    @staticmethod
+    def get_summary(issues: list[Issue]) -> dict[str, Any]:
         """Get a summary of the issues found.
 
         Args:

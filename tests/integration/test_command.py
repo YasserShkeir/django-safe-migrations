@@ -23,44 +23,32 @@ class TestCheckMigrationsCommand:
     def test_console_output(self):
         """Test basic console output."""
         out = StringIO()
-        try:
-            call_command("check_migrations", "safeapp", stdout=out)
-        except SystemExit:
-            pass  # Command may exit with error code
+        # safeapp has no issues, should not raise SystemExit
+        call_command("check_migrations", "safeapp", stdout=out)
 
         output = out.getvalue()
-        # Safe app should have no issues
-        # (or at least run without crashing)
-        assert output is not None
+        assert isinstance(output, str)
 
     def test_json_output(self):
         """Test JSON output format."""
         out = StringIO()
-        try:
-            call_command("check_migrations", "safeapp", format="json", stdout=out)
-        except SystemExit:
-            pass
+        # safeapp has no issues, should not raise SystemExit
+        call_command("check_migrations", "safeapp", format="json", stdout=out)
 
         output = out.getvalue()
-        # Should be valid JSON
-        if output.strip():
-            data = json.loads(output)
-            assert "total" in data or "issues" in data
+        assert output.strip()
+        data = json.loads(output)
+        assert "total" in data or "issues" in data
 
     def test_exclude_apps(self):
         """Test excluding apps from check."""
         out = StringIO()
-        try:
-            call_command(
-                "check_migrations",
-                exclude_apps=["testapp"],
-                stdout=out,
-            )
-        except SystemExit:
-            pass
-
-        # Command should complete without errors
-        assert True
+        # With testapp excluded, should have no issues and not raise
+        call_command(
+            "check_migrations",
+            exclude_apps=["testapp"],
+            stdout=out,
+        )
 
     def test_help(self, capsys):
         """Test that help is available."""
@@ -126,15 +114,19 @@ class TestRuleDetection:
         assert "SM007" in output
 
     @pytest.mark.postgres
-    def test_detects_sm009_unique_constraint(self):
-        """Test SM009 detection for UniqueConstraint (PostgreSQL)."""
+    def test_detects_sm011_unique_constraint_postgresql(self):
+        """Test SM011 detection for UniqueConstraint on PostgreSQL.
+
+        SM009 defers to SM011 on PostgreSQL to provide more specific
+        advice about concurrent index creation.
+        """
         out = StringIO()
         with pytest.raises(SystemExit):
             call_command("check_migrations", "testapp", stdout=out)
 
         output = out.getvalue()
-        # SM009 should be detected in 0008_unique_constraint.py
-        assert "SM009" in output
+        # SM011 should be detected (SM009 defers to SM011 on PostgreSQL)
+        assert "SM011" in output
 
     @pytest.mark.postgres
     def test_detects_sm010_non_concurrent_index(self):
@@ -589,8 +581,9 @@ class TestNewRulesV030:
     def test_detects_sm019_reserved_keyword(self):
         """Test SM019 detection for reserved keyword column names.
 
-        Migration 0013_reserved_keyword_field.py adds 'order' and 'type' fields,
-        both of which are SQL reserved keywords.
+        Migration 0013 adds 'order' (SQL reserved keyword) and 'type'
+        ('type' was removed from reserved keywords in v0.5.0).
+        SM019 also detects the 'user' field in Profile (0001_initial).
         """
         out = StringIO()
         with pytest.raises(SystemExit):
@@ -603,20 +596,22 @@ class TestNewRulesV030:
         sm019_issues = [i for i in data["issues"] if i.get("rule_id") == "SM019"]
         assert (
             len(sm019_issues) >= 2
-        ), "SM019 should detect both 'order' and 'type' fields"
+        ), "SM019 should detect 'order' (0013) and 'user' (0001)"
 
         # Verify messages mention the keywords
         messages = " ".join(i.get("message", "") for i in sm019_issues)
-        assert "order" in messages.lower() or "type" in messages.lower()
+        assert "order" in messages.lower()
 
 
 class TestNewRulesV040:
     """Tests for new rules in v0.4.0 (SM020-SM026)."""
 
     def test_detects_sm020_alterfield_null_false(self):
-        """Test SM020 detection for AlterField with null=False.
+        """Test SM020 detection for AlterField changing null=True to null=False.
 
-        Migration 0014_alterfield_null_false.py alters a field to null=False.
+        Migration 0013 adds 'order' as nullable (null=True).
+        Migration 0014 alters it to null=False, which SM020 should detect
+        via before-state resolution.
         """
         out = StringIO()
         with pytest.raises(SystemExit):
@@ -830,18 +825,21 @@ class TestCategoryConfiguration:
         """Test ENABLED_CATEGORIES creates whitelist mode.
 
         Only rules in enabled categories should run.
+        On PostgreSQL, SM009 defers to SM011 (not in destructive),
+        so only warnings exist and no SystemExit is raised.
         """
         out = StringIO()
-        with pytest.raises(SystemExit):
+        try:
             call_command("check_migrations", "testapp", format="json", stdout=out)
+        except SystemExit:
+            pass  # SM009 (ERROR) fires on SQLite but not PostgreSQL
 
         output = out.getvalue()
         data = json.loads(output)
 
         rule_ids = {i.get("rule_id") for i in data["issues"]}
 
-        # Only destructive rules should be present (SM002, SM003, SM006, SM013, SM014)
-        # SM001 should NOT be present (it's in 'schema-changes' and 'locking')
+        # SM001 should NOT be present (it's in 'schema-changes', not 'destructive')
         assert "SM001" not in rule_ids, "SM001 should be excluded in whitelist mode"
 
         # SM002 or SM003 should be present (destructive)
@@ -1000,6 +998,238 @@ class TestListRulesCLI:
         assert exit_code == 0
 
 
+class TestNewRulesV050:
+    """Tests for new rules in v0.5.0 (SM028-SM036)."""
+
+    def test_detects_sm028_autofield_primary_key(self):
+        """Test SM028 detection for AutoField primary key.
+
+        Migration 0021_autofield_primary_key.py uses AutoField(primary_key=True).
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        sm028_issues = [i for i in data["issues"] if i.get("rule_id") == "SM028"]
+        assert len(sm028_issues) > 0, "SM028 should detect AutoField primary key"
+
+        migration_names = [i.get("migration_name", "") for i in sm028_issues]
+        assert any(
+            "0021_autofield_primary_key" in name for name in migration_names
+        ), "SM028 should be detected in 0021_autofield_primary_key"
+
+    def test_detects_sm029_drop_not_null(self):
+        """Test SM029 detection for dropping NOT NULL (making field nullable).
+
+        Migration 0022_drop_not_null.py alters username to null=True.
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        sm029_issues = [i for i in data["issues"] if i.get("rule_id") == "SM029"]
+        assert len(sm029_issues) > 0, "SM029 should detect dropping NOT NULL"
+
+        migration_names = [i.get("migration_name", "") for i in sm029_issues]
+        assert any(
+            "0022_drop_not_null" in name for name in migration_names
+        ), "SM029 should be detected in 0022_drop_not_null"
+
+    @pytest.mark.postgres
+    def test_detects_sm031_charfield_postgresql(self):
+        """Test SM031 detection for CharField on PostgreSQL.
+
+        SM031 is a PostgreSQL-only INFO rule that recommends TextField
+        over CharField since they have identical performance on PostgreSQL.
+        Existing migrations with AddField(CharField) should trigger this.
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        sm031_issues = [i for i in data["issues"] if i.get("rule_id") == "SM031"]
+        assert (
+            len(sm031_issues) > 0
+        ), "SM031 should detect CharField(max_length>32) on PostgreSQL"
+
+    @override_settings(USE_TZ=False)
+    def test_detects_sm032_datetime_no_tz(self):
+        """Test SM032 detection for DateTimeField when USE_TZ=False.
+
+        SM032 flags DateTimeField additions when USE_TZ is False since
+        naive datetimes can cause timezone issues.
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        sm032_issues = [i for i in data["issues"] if i.get("rule_id") == "SM032"]
+        assert (
+            len(sm032_issues) > 0
+        ), "SM032 should detect DateTimeField when USE_TZ=False"
+
+    def test_detects_sm033_field_with_default(self):
+        """Test SM033 detection for NOT NULL field with default.
+
+        Migration 0024_field_with_default.py adds a NOT NULL CharField with default.
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        sm033_issues = [i for i in data["issues"] if i.get("rule_id") == "SM033"]
+        assert len(sm033_issues) > 0, "SM033 should detect field with default"
+
+        migration_names = [i.get("migration_name", "") for i in sm033_issues]
+        assert any(
+            "0024_field_with_default" in name for name in migration_names
+        ), "SM033 should be detected in 0024_field_with_default"
+
+    def test_detects_sm035_run_sql_no_lock_timeout(self):
+        """Test SM035 detection for RunSQL DDL without lock_timeout.
+
+        Migration 0025_run_sql_no_lock_timeout.py has ALTER TABLE without lock_timeout.
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        sm035_issues = [i for i in data["issues"] if i.get("rule_id") == "SM035"]
+        assert len(sm035_issues) > 0, "SM035 should detect DDL without lock_timeout"
+
+        migration_names = [i.get("migration_name", "") for i in sm035_issues]
+        assert any(
+            "0025_run_sql_no_lock_timeout" in name for name in migration_names
+        ), "SM035 should be detected in 0025_run_sql_no_lock_timeout"
+
+    def test_detects_sm036_create_table_no_if_exists(self):
+        """Test SM036 detection for CREATE TABLE without IF NOT EXISTS.
+
+        Migration 0026 has CREATE TABLE without IF NOT EXISTS.
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        sm036_issues = [i for i in data["issues"] if i.get("rule_id") == "SM036"]
+        assert (
+            len(sm036_issues) > 0
+        ), "SM036 should detect CREATE TABLE without IF NOT EXISTS"
+
+        migration_names = [i.get("migration_name", "") for i in sm036_issues]
+        assert any(
+            "0026_create_table_no_if_exists" in name for name in migration_names
+        ), "SM036 should be detected in 0026_create_table_no_if_exists"
+
+    @pytest.mark.postgres
+    def test_detects_sm030_remove_index(self):
+        """Test SM030 detection for RemoveIndex without CONCURRENTLY.
+
+        Migration 0023_remove_index.py uses RemoveIndex (PostgreSQL-only rule).
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        sm030_issues = [i for i in data["issues"] if i.get("rule_id") == "SM030"]
+        assert len(sm030_issues) > 0, "SM030 should detect RemoveIndex"
+
+        migration_names = [i.get("migration_name", "") for i in sm030_issues]
+        assert any(
+            "0023_remove_index" in name for name in migration_names
+        ), "SM030 should be detected in 0023_remove_index"
+
+    def test_list_rules_includes_v050_rules(self):
+        """Test --list-rules includes new v0.5.0 rules."""
+        out = StringIO()
+        try:
+            call_command("check_migrations", list_rules=True, format="json", stdout=out)
+        except SystemExit:
+            pass
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        rule_ids = {r["rule_id"] for r in data}
+
+        for rule_id in [
+            "SM027",
+            "SM028",
+            "SM029",
+            "SM030",
+            "SM031",
+            "SM032",
+            "SM033",
+            "SM034",
+            "SM035",
+            "SM036",
+        ]:
+            assert rule_id in rule_ids, f"{rule_id} should be in --list-rules output"
+
+
+class TestGitLabOutput:
+    """Tests for GitLab Code Quality output format (v0.5.0 feature)."""
+
+    def test_gitlab_output_format(self):
+        """Test GitLab Code Quality output is valid JSON array."""
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="gitlab", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        assert isinstance(data, list)
+        assert len(data) > 0
+
+        entry = data[0]
+        assert "type" in entry
+        assert entry["type"] == "issue"
+        assert "check_name" in entry
+        assert "description" in entry
+        assert "severity" in entry
+        assert "fingerprint" in entry
+        assert "location" in entry
+        assert "path" in entry["location"]
+
+    def test_gitlab_severity_mapping(self):
+        """Test GitLab severity levels are correctly mapped."""
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="gitlab", stdout=out)
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        severities = {entry["severity"] for entry in data}
+        valid_severities = {"blocker", "critical", "major", "minor", "info"}
+        assert severities.issubset(valid_severities)
+
+
 class TestPerAppConfiguration:
     """Tests for per-app rule configuration (v0.3.0 feature)."""
 
@@ -1105,3 +1335,196 @@ class TestPerAppConfiguration:
         # Note: Current implementation may vary - this tests expected behavior
         # If app config exists, it should still check global
         assert "SM002" in rule_ids or "SM007" in rule_ids  # Other rules work
+
+
+class TestBaselineIntegration:
+    """Integration tests for baseline support (v0.5.0 feature)."""
+
+    def test_generate_baseline_command(self, tmp_path):
+        """Test --generate-baseline creates a valid baseline file."""
+        baseline_path = str(tmp_path / "baseline.json")
+        out = StringIO()
+
+        call_command(
+            "check_migrations",
+            "testapp",
+            generate_baseline=baseline_path,
+            stdout=out,
+        )
+
+        output = out.getvalue()
+        assert "Generated baseline" in output
+
+        # Verify the file exists and contains valid JSON
+        content = (tmp_path / "baseline.json").read_text(encoding="utf-8")
+        data = json.loads(content)
+        assert data["version"] == 1
+        assert data["count"] > 0
+        assert len(data["issues"]) > 0
+
+    def test_baseline_filters_existing_issues(self, tmp_path):
+        """Test --baseline filters out baselined issues."""
+        baseline_path = str(tmp_path / "baseline.json")
+
+        # First generate a baseline
+        call_command(
+            "check_migrations",
+            "testapp",
+            generate_baseline=baseline_path,
+            stdout=StringIO(),
+        )
+
+        # Now run with the baseline - all issues should be filtered
+        out = StringIO()
+        try:
+            call_command(
+                "check_migrations",
+                "testapp",
+                format="json",
+                baseline=baseline_path,
+                stdout=out,
+            )
+            exit_code = 0
+        except SystemExit as e:
+            exit_code = e.code
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # With full baseline, all existing issues should be filtered
+        assert data["total"] == 0
+        assert exit_code == 0
+
+    def test_baseline_keeps_new_issues(self, tmp_path):
+        """Test --baseline keeps issues not in the baseline."""
+        baseline_path = str(tmp_path / "baseline.json")
+
+        # Generate a baseline for safeapp (0 issues)
+        call_command(
+            "check_migrations",
+            "safeapp",
+            generate_baseline=baseline_path,
+            stdout=StringIO(),
+        )
+
+        # Run against testapp with safeapp's baseline - issues should remain
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command(
+                "check_migrations",
+                "testapp",
+                format="json",
+                baseline=baseline_path,
+                stdout=out,
+            )
+
+        output = out.getvalue()
+        data = json.loads(output)
+        assert data["total"] > 0
+
+
+class TestDiffIntegration:
+    """Integration tests for diff mode (v0.5.0 feature)."""
+
+    def test_diff_mode_produces_valid_output(self):
+        """Test --diff produces valid JSON output."""
+        out = StringIO()
+        try:
+            call_command(
+                "check_migrations",
+                diff="HEAD",
+                format="json",
+                stdout=out,
+            )
+        except SystemExit:
+            pass
+
+        output = out.getvalue()
+        data = json.loads(output)
+
+        # Diff mode should produce valid JSON with correct structure
+        assert "issues" in data
+        assert "total" in data
+        assert isinstance(data["issues"], list)
+
+        # Issues (if any) should only be from changed migration files
+        for issue in data["issues"]:
+            assert "rule_id" in issue
+            assert "migration_name" in issue
+
+
+class TestInteractiveIntegration:
+    """Integration tests for interactive mode (v0.5.0 feature)."""
+
+    def test_interactive_quit_keeps_all(self, monkeypatch):
+        """Test interactive mode with immediate quit keeps all issues."""
+        # Simulate user pressing 'q' immediately
+        monkeypatch.setattr("builtins.input", lambda _: "q")
+
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command(
+                "check_migrations",
+                "testapp",
+                format="json",
+                interactive=True,
+                stdout=out,
+            )
+
+        output = out.getvalue()
+        data = json.loads(output)
+        # Quitting keeps all remaining issues
+        assert data["total"] > 0
+
+    def test_interactive_skip_all(self, monkeypatch):
+        """Test interactive mode with all issues skipped produces no errors."""
+        # Simulate user pressing 's' for every issue
+        monkeypatch.setattr("builtins.input", lambda _: "s")
+
+        out = StringIO()
+        try:
+            call_command(
+                "check_migrations",
+                "testapp",
+                format="json",
+                interactive=True,
+                stdout=out,
+            )
+            exit_code = 0
+        except SystemExit as e:
+            exit_code = e.code
+
+        output = out.getvalue()
+        data = json.loads(output)
+        # All issues skipped means 0 kept
+        assert data["total"] == 0
+        assert exit_code == 0
+
+
+class TestVerboseMode:
+    """Tests for verbose progress reporting (v0.5.0 feature)."""
+
+    def test_verbose_flag_accepted(self):
+        """Test that --verbose flag is accepted by the command."""
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", verbose=True, stdout=out)
+
+        output = out.getvalue()
+        # Should produce normal output (verbose writes to stderr)
+        assert "SM001" in output or "SM002" in output
+
+
+class TestWatchMode:
+    """Tests for watch mode (v0.5.0 feature)."""
+
+    def test_watch_requires_watchdog(self):
+        """Test that --watch raises clear error if watchdog not installed."""
+        from django_safe_migrations.watch import has_watchdog
+
+        if has_watchdog():
+            pytest.skip("watchdog is installed")
+
+        out = StringIO()
+        with pytest.raises(ImportError, match="watchdog"):
+            call_command("check_migrations", watch=True, stdout=out)

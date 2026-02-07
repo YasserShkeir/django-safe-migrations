@@ -1,6 +1,7 @@
 """Tests for the MigrationAnalyzer."""
 
 from django.db import migrations, models
+from django.test import override_settings
 
 from django_safe_migrations.analyzer import MigrationAnalyzer
 
@@ -201,13 +202,8 @@ class TestErrorRecovery:
         analyzer = MigrationAnalyzer(db_vendor="postgresql")
 
         # Should handle gracefully, skipping None
-        try:
-            issues = analyzer.analyze_migration(migration)
-            # If it doesn't raise, should return empty or handle gracefully
-            assert isinstance(issues, list)
-        except (TypeError, AttributeError):
-            # If it raises, that's also acceptable behavior for malformed input
-            pass
+        issues = analyzer.analyze_migration(migration)
+        assert isinstance(issues, list)
 
     def test_operation_with_missing_attributes(self, mock_migration_factory):
         """Test analyzer handles operations with missing expected attributes."""
@@ -223,12 +219,8 @@ class TestErrorRecovery:
         analyzer = MigrationAnalyzer(db_vendor="postgresql")
 
         # Should handle gracefully
-        try:
-            issues = analyzer.analyze_migration(migration)
-            assert isinstance(issues, list)
-        except (TypeError, AttributeError):
-            # Acceptable for truly malformed operations
-            pass
+        issues = analyzer.analyze_migration(migration)
+        assert isinstance(issues, list)
 
     def test_field_with_unusual_attributes(self):
         """Test analyzer handles fields with unusual attribute values."""
@@ -257,24 +249,16 @@ class TestErrorRecovery:
         analyzer = MigrationAnalyzer(db_vendor="postgresql")
 
         # Should handle gracefully without crashing
-        try:
-            issues = analyzer.analyze_migration(migration)
-            assert isinstance(issues, list)
-        except (TypeError, AttributeError):
-            # Acceptable behavior
-            pass
+        issues = analyzer.analyze_migration(migration)
+        assert isinstance(issues, list)
 
     def test_analyze_empty_app(self):
         """Test analyzer handles app with no migrations."""
         analyzer = MigrationAnalyzer(db_vendor="postgresql")
 
         # Should return empty list for non-existent app
-        try:
-            issues = analyzer.analyze_app("nonexistent_app_12345")
-            assert issues == []
-        except Exception:
-            # Some Django configurations may raise
-            pass
+        issues = analyzer.analyze_app("nonexistent_app_12345")
+        assert issues == []
 
     def test_runsql_with_none_sql(self, mock_migration_factory):
         """Test analyzer handles RunSQL with None sql."""
@@ -367,9 +351,223 @@ class TestErrorRecovery:
         analyzer = MigrationAnalyzer(db_vendor="postgresql")
 
         # Should handle gracefully
-        try:
-            issues = analyzer.analyze_migration(migration)
-            assert isinstance(issues, list)
-        except RuntimeError:
-            # If it propagates, that's also acceptable
-            pass
+        issues = analyzer.analyze_migration(migration)
+        assert isinstance(issues, list)
+
+
+class TestAnalyzeAll:
+    """Tests for MigrationAnalyzer.analyze_all."""
+
+    def test_analyze_all_excludes_apps(self):
+        """Test that analyze_all respects exclude_apps parameter."""
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+        # Exclude testapp — should get no testapp issues
+        issues = analyzer.analyze_all(exclude_apps=["testapp"])
+        testapp_issues = [i for i in issues if i.app_label == "testapp"]
+        assert len(testapp_issues) == 0
+
+    def test_analyze_all_includes_testapp(self):
+        """Test that analyze_all finds issues in testapp when not excluded."""
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+        # Exclude Django built-ins but include testapp
+        issues = analyzer.analyze_all(
+            exclude_apps=[
+                "admin",
+                "auth",
+                "contenttypes",
+                "sessions",
+                "messages",
+                "staticfiles",
+            ]
+        )
+        testapp_issues = [i for i in issues if i.app_label == "testapp"]
+        assert len(testapp_issues) > 0
+
+    def test_analyze_all_exclude_multiple(self):
+        """Test that multiple apps can be excluded."""
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+        issues = analyzer.analyze_all(
+            exclude_apps=["testapp", "admin", "auth", "contenttypes"]
+        )
+        for issue in issues:
+            assert issue.app_label not in (
+                "testapp",
+                "admin",
+                "auth",
+                "contenttypes",
+            )
+
+
+class TestAnalyzeNewMigrations:
+    """Tests for MigrationAnalyzer.analyze_new_migrations."""
+
+    def _make_mock_loader(self, disk_migrations):
+        """Create a mock MigrationLoader with given disk_migrations."""
+        from unittest.mock import MagicMock
+
+        loader = MagicMock()
+        loader.disk_migrations = disk_migrations
+        return loader
+
+    def test_analyze_new_migrations_with_app_filter(self, mock_migration_factory):
+        """Test analyze_new_migrations filters by app_label."""
+        from unittest.mock import MagicMock, patch
+
+        mig_testapp = mock_migration_factory(
+            [migrations.RemoveField(model_name="user", name="old_field")],
+            app_label="testapp",
+            name="0001_initial",
+        )
+        mig_other = mock_migration_factory(
+            [migrations.RemoveField(model_name="user", name="old_field")],
+            app_label="otherapp",
+            name="0001_initial",
+        )
+
+        disk = {
+            ("testapp", "0001_initial"): mig_testapp,
+            ("otherapp", "0001_initial"): mig_other,
+        }
+        mock_loader = self._make_mock_loader(disk)
+        mock_loader.get_migration.side_effect = lambda app, name: disk[(app, name)]
+
+        mock_recorder = MagicMock()
+        mock_recorder.applied_migrations.return_value = set()
+
+        with (
+            patch(
+                "django.db.migrations.loader.MigrationLoader",
+                return_value=mock_loader,
+            ),
+            patch(
+                "django.db.migrations.recorder.MigrationRecorder",
+                return_value=mock_recorder,
+            ),
+        ):
+            analyzer = MigrationAnalyzer(db_vendor="postgresql")
+            issues = analyzer.analyze_new_migrations(app_label="testapp")
+            for issue in issues:
+                assert issue.app_label == "testapp"
+            assert len(issues) > 0
+
+    def test_analyze_new_migrations_nonexistent_app(self):
+        """Test analyze_new_migrations with non-existent app returns empty."""
+        from unittest.mock import MagicMock, patch
+
+        mock_loader = self._make_mock_loader({("testapp", "0001_initial"): None})
+        mock_recorder = MagicMock()
+        mock_recorder.applied_migrations.return_value = set()
+
+        with (
+            patch(
+                "django.db.migrations.loader.MigrationLoader",
+                return_value=mock_loader,
+            ),
+            patch(
+                "django.db.migrations.recorder.MigrationRecorder",
+                return_value=mock_recorder,
+            ),
+        ):
+            analyzer = MigrationAnalyzer(db_vendor="postgresql")
+            issues = analyzer.analyze_new_migrations(app_label="nonexistent_app_xyz")
+            assert issues == []
+
+    def test_analyze_new_migrations_skips_applied(self, mock_migration_factory):
+        """Test that already-applied migrations are skipped."""
+        from unittest.mock import MagicMock, patch
+
+        mig = mock_migration_factory(
+            [migrations.RemoveField(model_name="user", name="old_field")],
+            app_label="testapp",
+            name="0001_initial",
+        )
+        disk = {("testapp", "0001_initial"): mig}
+        mock_loader = self._make_mock_loader(disk)
+
+        mock_recorder = MagicMock()
+        # Mark the migration as already applied
+        mock_recorder.applied_migrations.return_value = {("testapp", "0001_initial")}
+
+        with (
+            patch(
+                "django.db.migrations.loader.MigrationLoader",
+                return_value=mock_loader,
+            ),
+            patch(
+                "django.db.migrations.recorder.MigrationRecorder",
+                return_value=mock_recorder,
+            ),
+        ):
+            analyzer = MigrationAnalyzer(db_vendor="postgresql")
+            issues = analyzer.analyze_new_migrations()
+            assert issues == []
+
+
+class TestSeverityOverrides:
+    """Tests for severity overrides via Django settings."""
+
+    @override_settings(
+        SAFE_MIGRATIONS={
+            "RULE_SEVERITY": {"SM002": "INFO"},
+            "EXCLUDED_APPS": [],
+        }
+    )
+    def test_severity_override_downgrades_to_info(self, mock_migration_factory):
+        """Test that RULE_SEVERITY overrides change issue severity."""
+        from django_safe_migrations.rules.base import Severity
+
+        operation = migrations.RemoveField(
+            model_name="user",
+            name="old_field",
+        )
+        migration = mock_migration_factory([operation])
+
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+        issues = analyzer.analyze_migration(migration)
+
+        sm002_issues = [i for i in issues if i.rule_id == "SM002"]
+        assert len(sm002_issues) == 1
+        assert sm002_issues[0].severity == Severity.INFO
+
+    def test_severity_default_without_override(self, mock_migration_factory):
+        """Test that SM002 uses default severity without override."""
+        from django_safe_migrations.rules.base import Severity
+
+        operation = migrations.RemoveField(
+            model_name="user",
+            name="old_field",
+        )
+        migration = mock_migration_factory([operation])
+
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+        issues = analyzer.analyze_migration(migration)
+
+        sm002_issues = [i for i in issues if i.rule_id == "SM002"]
+        assert len(sm002_issues) == 1
+        assert sm002_issues[0].severity == Severity.WARNING
+
+    @override_settings(
+        SAFE_MIGRATIONS={
+            "RULE_SEVERITY": {"SM001": "WARNING"},
+            "EXCLUDED_APPS": [],
+        }
+    )
+    def test_severity_override_downgrades_error_to_warning(
+        self, mock_migration_factory
+    ):
+        """Test that an error rule can be downgraded to warning."""
+        from django_safe_migrations.rules.base import Severity
+
+        operation = migrations.AddField(
+            model_name="user",
+            name="email",
+            field=models.CharField(max_length=255),
+        )
+        migration = mock_migration_factory([operation])
+
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+        issues = analyzer.analyze_migration(migration)
+
+        sm001_issues = [i for i in issues if i.rule_id == "SM001"]
+        assert len(sm001_issues) == 1
+        assert sm001_issues[0].severity == Severity.WARNING

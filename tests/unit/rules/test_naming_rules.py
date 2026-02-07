@@ -176,28 +176,28 @@ class TestReservedKeywordColumnRule:
         assert "db_column" in suggestion
         assert "order" in suggestion
 
-    def test_detects_type_as_reserved(self, mock_migration):
-        """Test that 'type' is detected as reserved (common Django issue)."""
+    def test_detects_table_as_reserved(self, mock_migration):
+        """Test that 'table' is detected as reserved (SQL keyword)."""
         rule = ReservedKeywordColumnRule()
         operation = migrations.AddField(
             model_name="item",
-            name="type",
+            name="table",
             field=models.CharField(max_length=50),
         )
         issue = rule.check(operation, mock_migration)
 
         assert issue is not None
-        assert "type" in issue.message
+        assert "table" in issue.message
 
-    def test_detects_status_as_reserved(self, mock_migration):
-        """Test that 'status' is detected (commonly problematic)."""
+    def test_allows_common_non_reserved_names(self, mock_migration):
+        """Test that common Django field names like 'type' and 'status' are allowed."""
         rule = ReservedKeywordColumnRule()
-        operation = migrations.AddField(
-            model_name="order",
-            name="status",
-            field=models.CharField(max_length=20),
-        )
-        issue = rule.check(operation, mock_migration)
 
-        assert issue is not None
-        assert "status" in issue.message
+        for name in ["type", "status", "name", "date", "value"]:
+            operation = migrations.AddField(
+                model_name="model",
+                name=name,
+                field=models.CharField(max_length=50),
+            )
+            issue = rule.check(operation, mock_migration)
+            assert issue is None, f"Expected '{name}' to be allowed"

@@ -116,7 +116,6 @@ class EnumAddValueInTransactionRule(BaseRule):
     # Patterns that indicate adding enum value
     ENUM_ADD_PATTERNS = [
         r"ALTER\s+TYPE\s+\w+\s+ADD\s+VALUE",
-        r"add\s+value",
     ]
 
     def check(
@@ -405,10 +404,13 @@ class SQLInjectionPatternRule(BaseRule):
     description = "Potential SQL injection pattern detected in RunSQL"
 
     # Patterns that suggest string interpolation (potential SQL injection)
+    # Each pattern is checked against the SQL text of RunSQL operations
     DANGEROUS_PATTERNS = [
-        (r"%s", "Python string formatting (%s)"),
+        # %s not inside quotes (avoid matching LIKE '%something%')
+        (r"(?<!')%s(?!')", "Python string formatting (%s)"),
         (r"%\([^)]+\)s", "Python named formatting (%(name)s)"),
-        (r"\{[^}]*\}", "Python format string ({} or {name})"),
+        # {name} with identifier inside (avoid matching empty {} for arrays/JSON)
+        (r"\{[a-zA-Z_]\w*\}", "Python format string ({name})"),
         (r"\$\{[^}]+\}", "Shell-style substitution (${var})"),
         (r"'\s*\+\s*[a-zA-Z_]", "String concatenation ('+ var)"),
         (r"[a-zA-Z_]\s*\+\s*'", "String concatenation (var +')"),
@@ -624,4 +626,223 @@ class RunPythonNoBatchingRule(BaseRule):
 
 4. Use values/values_list when you don't need model instances:
    ids = list(Model.objects.values_list('id', flat=True))
+"""
+
+
+class RequireLockTimeoutRule(BaseRule):
+    r"""Detect RunSQL with DDL but no SET lock_timeout.
+
+    When running DDL statements (ALTER TABLE, CREATE INDEX, etc.) via
+    RunSQL, it's good practice to set a lock_timeout to prevent the
+    migration from waiting indefinitely for a lock.
+
+    Without lock_timeout, a DDL statement can block while waiting for
+    an exclusive lock, and in turn block all subsequent queries.
+
+    This is an informational rule to encourage defensive DDL.
+    """
+
+    rule_id = "SM035"
+    severity = Severity.INFO
+    description = "RunSQL with DDL should set lock_timeout to avoid blocking"
+
+    # DDL patterns that benefit from lock_timeout
+    DDL_PATTERNS = [
+        r"ALTER\s+TABLE",
+        r"CREATE\s+INDEX",
+        r"DROP\s+INDEX",
+        r"DROP\s+TABLE",
+        r"CREATE\s+TABLE",
+        r"TRUNCATE\s+",
+    ]
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        r"""Check if RunSQL has DDL without lock_timeout.
+
+        Args:
+            operation: The migration operation to check.
+            migration: The migration containing the operation.
+            \*\*kwargs: Additional context.
+
+        Returns:
+            An Issue if DDL lacks lock_timeout, None otherwise.
+        """
+        if not isinstance(operation, migrations.RunSQL):
+            return None
+
+        sql = getattr(operation, "sql", "")
+        if isinstance(sql, (list, tuple)):
+            sql_str = " ".join(str(s) for s in sql)
+        else:
+            sql_str = str(sql)
+
+        sql_upper = sql_str.upper()
+
+        # Check if SQL contains DDL patterns
+        has_ddl = any(re.search(p, sql_upper) for p in self.DDL_PATTERNS)
+        if not has_ddl:
+            return None
+
+        # Check if lock_timeout is set in this SQL or in the same migration
+        if "LOCK_TIMEOUT" in sql_upper:
+            return None
+
+        # Check other operations in the migration for lock_timeout
+        all_operations = getattr(migration, "operations", [])
+        for op in all_operations:
+            if isinstance(op, migrations.RunSQL):
+                op_sql = getattr(op, "sql", "")
+                if isinstance(op_sql, (list, tuple)):
+                    op_sql = " ".join(str(s) for s in op_sql)
+                if "LOCK_TIMEOUT" in str(op_sql).upper():
+                    return None
+
+        return self.create_issue(
+            operation=operation,
+            migration=migration,
+            message=(
+                "RunSQL contains DDL statement without SET lock_timeout. "
+                "Consider setting a lock_timeout to prevent indefinite "
+                "blocking while waiting for locks."
+            ),
+        )
+
+    def get_suggestion(self, operation: Operation) -> str:
+        """Return suggestion for setting lock_timeout.
+
+        Args:
+            operation: The problematic operation.
+
+        Returns:
+            A string with the suggested fix.
+        """
+        return """Set lock_timeout before DDL to avoid indefinite blocking:
+
+    migrations.RunSQL(
+        sql=[
+            "SET lock_timeout = '5s'",
+            "ALTER TABLE myapp_model ADD COLUMN new_col INTEGER",
+            "SET lock_timeout = '0'",  # Reset after
+        ],
+        reverse_sql="ALTER TABLE myapp_model DROP COLUMN new_col",
+    )
+
+Or set it at the migration level:
+
+    migrations.RunSQL("SET lock_timeout = '5s'"),
+    migrations.RunSQL(
+        sql="ALTER TABLE myapp_model ...",
+        reverse_sql="ALTER TABLE myapp_model ...",
+    ),
+    migrations.RunSQL("SET lock_timeout = '0'"),
+
+If the lock can't be acquired within the timeout, the statement
+will fail with an error instead of blocking other queries.
+"""
+
+
+class PreferIfExistsRule(BaseRule):
+    """Detect CREATE/DROP TABLE without IF [NOT] EXISTS.
+
+    Using CREATE TABLE without IF NOT EXISTS or DROP TABLE without
+    IF EXISTS can cause migrations to fail if the table already exists
+    (or doesn't exist). This makes migrations non-idempotent.
+
+    Safe pattern:
+    Always use IF NOT EXISTS / IF EXISTS for defensive DDL.
+    """
+
+    rule_id = "SM036"
+    severity = Severity.INFO
+    description = "Use IF [NOT] EXISTS for defensive CREATE/DROP TABLE"
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Check if CREATE/DROP TABLE lacks IF [NOT] EXISTS.
+
+        Args:
+            operation: The migration operation to check.
+            migration: The migration containing the operation.
+            **kwargs: Additional context.
+
+        Returns:
+            An Issue if IF [NOT] EXISTS is missing, None otherwise.
+        """
+        if not isinstance(operation, migrations.RunSQL):
+            return None
+
+        sql = getattr(operation, "sql", "")
+        if isinstance(sql, (list, tuple)):
+            sql_str = " ".join(str(s) for s in sql)
+        else:
+            sql_str = str(sql)
+
+        sql_upper = sql_str.upper()
+
+        # Check CREATE TABLE without IF NOT EXISTS
+        if re.search(r"CREATE\s+TABLE\b", sql_upper):
+            if not re.search(r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\b", sql_upper):
+                return self.create_issue(
+                    operation=operation,
+                    migration=migration,
+                    message=(
+                        "CREATE TABLE without IF NOT EXISTS may fail if "
+                        "the table already exists. Use IF NOT EXISTS for "
+                        "idempotent migrations."
+                    ),
+                )
+
+        # Check DROP TABLE without IF EXISTS
+        if re.search(r"DROP\s+TABLE\b", sql_upper):
+            if not re.search(r"DROP\s+TABLE\s+IF\s+EXISTS\b", sql_upper):
+                return self.create_issue(
+                    operation=operation,
+                    migration=migration,
+                    message=(
+                        "DROP TABLE without IF EXISTS may fail if the table "
+                        "doesn't exist. Use IF EXISTS for idempotent migrations."
+                    ),
+                )
+
+        return None
+
+    def get_suggestion(self, operation: Operation) -> str:
+        """Return suggestion for using IF [NOT] EXISTS.
+
+        Args:
+            operation: The problematic operation.
+
+        Returns:
+            A string with the suggested fix.
+        """
+        return """Use IF [NOT] EXISTS for defensive DDL:
+
+    # Instead of:
+    migrations.RunSQL("CREATE TABLE myapp_temp (id SERIAL PRIMARY KEY)")
+
+    # Use:
+    migrations.RunSQL(
+        sql="CREATE TABLE IF NOT EXISTS myapp_temp (id SERIAL PRIMARY KEY)",
+        reverse_sql="DROP TABLE IF EXISTS myapp_temp",
+    )
+
+    # Instead of:
+    migrations.RunSQL("DROP TABLE myapp_temp")
+
+    # Use:
+    migrations.RunSQL(
+        sql="DROP TABLE IF EXISTS myapp_temp",
+        reverse_sql="CREATE TABLE IF NOT EXISTS myapp_temp (...)",
+    )
+
+This makes migrations idempotent and safe to re-run.
 """

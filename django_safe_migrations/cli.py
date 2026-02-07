@@ -122,7 +122,11 @@ Examples:
   %(prog)s myapp                Check specific app
   %(prog)s --new-only           Check unapplied migrations only
   %(prog)s --format=json        Output as JSON
+  %(prog)s --format=gitlab      GitLab Code Quality output
   %(prog)s --list-rules         Show all available rules
+  %(prog)s --interactive        Review issues one-by-one
+  %(prog)s --diff               Only check changed migrations
+  %(prog)s --baseline base.json Exclude baselined issues
 
 Documentation: https://django-safe-migrations.readthedocs.io/
 """,
@@ -135,7 +139,7 @@ Documentation: https://django-safe-migrations.readthedocs.io/
     )
     parser.add_argument(
         "--format",
-        choices=["console", "json", "github", "sarif"],
+        choices=["console", "json", "github", "gitlab", "sarif"],
         default="console",
         help="Output format (default: console)",
     )
@@ -170,6 +174,45 @@ Documentation: https://django-safe-migrations.readthedocs.io/
         action="store_true",
         help="Include Django's built-in apps (auth, admin, etc.)",
     )
+    parser.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Show progress information during analysis",
+    )
+    parser.add_argument(
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Interactively review each issue",
+    )
+    parser.add_argument(
+        "--diff",
+        nargs="?",
+        const="main",
+        default=None,
+        metavar="BASE_REF",
+        help="Only check migrations changed since BASE_REF (default: main)",
+    )
+    parser.add_argument(
+        "--baseline",
+        type=str,
+        default=None,
+        metavar="FILE",
+        help="Exclude issues present in baseline file",
+    )
+    parser.add_argument(
+        "--generate-baseline",
+        type=str,
+        default=None,
+        metavar="FILE",
+        help="Generate baseline file from current issues and exit",
+    )
+    parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Watch migration files for changes and re-run analysis",
+    )
 
     args: Namespace = parser.parse_args(argv)
 
@@ -190,10 +233,17 @@ Documentation: https://django-safe-migrations.readthedocs.io/
     from django_safe_migrations.analyzer import MigrationAnalyzer
     from django_safe_migrations.conf import log_config_warnings
     from django_safe_migrations.reporters import get_reporter
-    from django_safe_migrations.rules.base import Severity
+    from django_safe_migrations.rules.base import Issue, Severity
 
     # Validate configuration and log any warnings
     log_config_warnings()
+
+    # Handle --watch mode
+    if args.watch:
+        from django_safe_migrations.watch import watch_migrations
+
+        watch_migrations()
+        return 0
 
     # Build exclude list
     exclude_apps = list(args.exclude_apps)
@@ -209,12 +259,29 @@ Documentation: https://django-safe-migrations.readthedocs.io/
         exclude_apps = list(set(exclude_apps + django_apps))
 
     # Create analyzer
-    analyzer = MigrationAnalyzer()
+    analyzer = MigrationAnalyzer(verbose=args.verbose)
 
     # Collect issues
-    issues = []
+    issues: list[Issue] = []
 
-    if args.new_only:
+    if args.diff is not None:
+        # Diff mode — only check changed migrations
+        from django_safe_migrations.diff import get_changed_apps_and_migrations
+
+        changed = get_changed_apps_and_migrations(args.diff)
+        if args.verbose:
+            print(
+                f"Diff mode: checking {len(changed)} changed migration(s)",
+                file=sys.stderr,
+            )
+        for app_label, migration_name in changed:
+            if app_label not in exclude_apps:
+                app_issues = analyzer.analyze_app(app_label)
+                # Filter to only the changed migration
+                issues.extend(
+                    i for i in app_issues if i.migration_name == migration_name
+                )
+    elif args.new_only:
         if args.app_labels:
             for app_label in args.app_labels:
                 issues.extend(analyzer.analyze_new_migrations(app_label))
@@ -226,6 +293,30 @@ Documentation: https://django-safe-migrations.readthedocs.io/
                 issues.extend(analyzer.analyze_app(app_label))
     else:
         issues.extend(analyzer.analyze_all(exclude_apps=exclude_apps))
+
+    # Apply baseline filtering
+    if args.baseline:
+        from django_safe_migrations.baseline import (
+            filter_baselined_issues,
+            load_baseline,
+        )
+
+        baseline = load_baseline(args.baseline)
+        issues = filter_baselined_issues(issues, baseline)
+
+    # Handle --generate-baseline
+    if args.generate_baseline:
+        from django_safe_migrations.baseline import generate_baseline
+
+        count = generate_baseline(issues, args.generate_baseline)
+        print(f"Generated baseline with {count} issue(s) at {args.generate_baseline}")
+        return 0
+
+    # Interactive mode
+    if args.interactive:
+        from django_safe_migrations.interactive import review_issues_interactively
+
+        issues = review_issues_interactively(issues)
 
     # Get reporter
     reporter_kwargs: dict[str, object] = {"stream": sys.stdout}

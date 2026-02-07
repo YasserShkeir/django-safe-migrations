@@ -21,6 +21,7 @@ from django_safe_migrations.utils import (
     is_mysql,
     is_postgres,
     is_sqlite,
+    resolve_field_before_operation,
 )
 
 
@@ -617,3 +618,78 @@ class TestGetUnappliedMigrations:
         # All results should be for testapp
         for app, name in result:
             assert app == "testapp"
+
+
+class TestResolveFieldBeforeOperation:
+    """Tests for resolve_field_before_operation function (v0.5.0).
+
+    This utility uses Django's MigrationLoader to resolve the field state
+    before an AlterField operation, enabling precise old-vs-new comparison.
+    """
+
+    def test_returns_none_for_nonexistent_migration(self):
+        """Test returns None when migration doesn't exist."""
+        result = resolve_field_before_operation(
+            app_label="nonexistent_app",
+            migration_name="0001_initial",
+            operation_index=0,
+            model_name="mymodel",
+            field_name="myfield",
+        )
+        assert result is None
+
+    def test_returns_none_for_nonexistent_model(self):
+        """Test returns None when model doesn't exist in migration state."""
+        result = resolve_field_before_operation(
+            app_label="testapp",
+            migration_name="0001_initial",
+            operation_index=0,
+            model_name="nonexistent_model",
+            field_name="myfield",
+        )
+        assert result is None
+
+    def test_returns_none_for_nonexistent_field(self):
+        """Test returns None when field doesn't exist in model state."""
+        result = resolve_field_before_operation(
+            app_label="testapp",
+            migration_name="0001_initial",
+            operation_index=0,
+            model_name="testmodel",
+            field_name="nonexistent_field",
+        )
+        assert result is None
+
+    def test_resolves_field_from_testapp(self):
+        """Test resolving a known field from the test project.
+
+        Resolves 'username' before migration 0002, which was created
+        in 0001_initial.
+        """
+        result = resolve_field_before_operation(
+            app_label="testapp",
+            migration_name="0002_unsafe_not_null",
+            operation_index=0,
+            model_name="user",
+            field_name="username",
+        )
+        assert result is not None
+        assert result.__class__.__name__ == "CharField"
+
+    def test_resolves_nullable_field_before_alter(self):
+        """Test resolving field state before AlterField (dict-fields fix).
+
+        Migration 0013 adds 'order' as IntegerField(null=True).
+        Resolving before 0014 should see null=True, proving that
+        Django's dict-based model_state.fields is handled correctly.
+        """
+        result = resolve_field_before_operation(
+            app_label="testapp",
+            migration_name="0014_alterfield_null_false",
+            operation_index=0,
+            model_name="user",
+            field_name="order",
+        )
+        assert result is not None
+        assert result.__class__.__name__ == "IntegerField"
+        assert getattr(result, "null", False) is True

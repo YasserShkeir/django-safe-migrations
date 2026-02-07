@@ -42,7 +42,7 @@ class AddUniqueConstraintRule(BaseRule):
         Args:
             operation: The migration operation to check.
             migration: The migration containing the operation.
-            **kwargs: Additional context.
+            **kwargs: Additional context (may include db_vendor).
 
         Returns:
             An Issue if the operation is unsafe, None otherwise.
@@ -57,6 +57,12 @@ class AddUniqueConstraintRule(BaseRule):
         # Check if it's a UniqueConstraint
         constraint_class_name = type(constraint).__name__
         if constraint_class_name != "UniqueConstraint":
+            return None
+
+        # On PostgreSQL, SM011 provides a more specific warning with
+        # concurrent index advice — skip to avoid duplicate issues.
+        db_vendor: str | None = kwargs.get("db_vendor")  # type: ignore[assignment]
+        if db_vendor == "postgresql":
             return None
 
         constraint_name = getattr(constraint, "name", "unknown")

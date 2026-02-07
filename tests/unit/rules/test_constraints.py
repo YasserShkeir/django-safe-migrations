@@ -104,6 +104,66 @@ class TestAddUniqueConstraintRule:
         assert "atomic = False" in suggestion
 
 
+class TestAddUniqueConstraintRuleDeduplication:
+    """Tests for SM009 deduplication with SM011 on PostgreSQL."""
+
+    def test_skips_on_postgresql(self) -> None:
+        """Test that SM009 defers to SM011 on PostgreSQL."""
+        rule = AddUniqueConstraintRule()
+        migration = MagicMock()
+        migration.app_label = "testapp"
+        migration.name = "0001_initial"
+        operation = migrations.AddConstraint(
+            model_name="user",
+            constraint=models.UniqueConstraint(
+                fields=["email"],
+                name="unique_email",
+            ),
+        )
+
+        issue = rule.check(operation, migration, db_vendor="postgresql")
+
+        assert issue is None
+
+    def test_fires_on_mysql(self) -> None:
+        """Test that SM009 still fires on MySQL."""
+        rule = AddUniqueConstraintRule()
+        migration = MagicMock()
+        migration.app_label = "testapp"
+        migration.name = "0001_initial"
+        operation = migrations.AddConstraint(
+            model_name="user",
+            constraint=models.UniqueConstraint(
+                fields=["email"],
+                name="unique_email",
+            ),
+        )
+
+        issue = rule.check(operation, migration, db_vendor="mysql")
+
+        assert issue is not None
+        assert issue.rule_id == "SM009"
+
+    def test_fires_when_no_db_vendor(self) -> None:
+        """Test that SM009 fires when db_vendor is not specified."""
+        rule = AddUniqueConstraintRule()
+        migration = MagicMock()
+        migration.app_label = "testapp"
+        migration.name = "0001_initial"
+        operation = migrations.AddConstraint(
+            model_name="user",
+            constraint=models.UniqueConstraint(
+                fields=["email"],
+                name="unique_email",
+            ),
+        )
+
+        issue = rule.check(operation, migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM009"
+
+
 class TestAlterUniqueTogetherRule:
     """Tests for SM015: AlterUniqueTogether rule."""
 

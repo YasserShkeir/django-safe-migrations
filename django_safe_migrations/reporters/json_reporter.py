@@ -55,8 +55,12 @@ class JsonReporter(BaseReporter):
         self.write(output)
         return output
 
-    def _get_summary(self, issues: list[Issue]) -> dict[str, Any]:
+    @staticmethod
+    def _get_summary(issues: list[Issue]) -> dict[str, Any]:
         """Generate a summary of the issues.
+
+        Delegates to MigrationAnalyzer.get_summary() and remaps keys
+        to the JSON reporter's flat format for backward compatibility.
 
         Args:
             issues: List of issues to summarize.
@@ -64,34 +68,14 @@ class JsonReporter(BaseReporter):
         Returns:
             Summary dictionary.
         """
-        from django_safe_migrations.rules.base import Severity
+        from django_safe_migrations.analyzer import MigrationAnalyzer
 
-        summary: dict[str, Any] = {
-            "errors": 0,
-            "warnings": 0,
-            "info": 0,
-            "by_rule": {},
-            "by_app": {},
+        raw = MigrationAnalyzer.get_summary(issues)
+        by_sev = raw.get("by_severity", {})
+        return {
+            "errors": by_sev.get("error", 0),
+            "warnings": by_sev.get("warning", 0),
+            "info": by_sev.get("info", 0),
+            "by_rule": raw.get("by_rule", {}),
+            "by_app": raw.get("by_app", {}),
         }
-
-        for issue in issues:
-            # Count by severity
-            if issue.severity == Severity.ERROR:
-                summary["errors"] += 1
-            elif issue.severity == Severity.WARNING:
-                summary["warnings"] += 1
-            else:
-                summary["info"] += 1
-
-            # Count by rule
-            if issue.rule_id not in summary["by_rule"]:
-                summary["by_rule"][issue.rule_id] = 0
-            summary["by_rule"][issue.rule_id] += 1
-
-            # Count by app
-            app = issue.app_label or "unknown"
-            if app not in summary["by_app"]:
-                summary["by_app"][app] = 0
-            summary["by_app"][app] += 1
-
-        return summary
