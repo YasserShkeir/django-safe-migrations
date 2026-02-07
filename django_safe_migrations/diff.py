@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
+import subprocess  # nosec B404
 from pathlib import Path
 
 logger = logging.getLogger("django_safe_migrations")
@@ -32,7 +32,7 @@ def get_changed_migration_files(base_ref: str = "main") -> list[str]:
         List of absolute paths to changed migration files.
     """
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607
             ["git", "diff", "--name-only", "--diff-filter=ACMR", base_ref],
             capture_output=True,
             text=True,
@@ -102,7 +102,7 @@ def _find_git_root() -> str:
         Absolute path to the git root, or cwd if not in a git repo.
     """
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607
             ["git", "rev-parse", "--show-toplevel"],
             capture_output=True,
             text=True,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from io import StringIO
+from urllib.parse import urlparse
 
 from django_safe_migrations.reporters.sarif import SarifReporter
 from django_safe_migrations.rules.base import Issue, Severity
@@ -670,8 +671,9 @@ class TestSarifHelpUri:
 
         for rule in rules:
             assert "helpUri" in rule
-            assert "docs/rules.md" in rule["helpUri"]
-            assert "github.com" in rule["helpUri"]
+            parsed = urlparse(rule["helpUri"])
+            assert parsed.netloc == "github.com"
+            assert parsed.path.endswith("/docs/rules.md")
 
     def test_help_uri_is_consistent_across_rules(self) -> None:
         """Test that all rules share the same helpUri."""

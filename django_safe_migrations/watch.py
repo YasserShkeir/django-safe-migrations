@@ -39,7 +39,7 @@ def has_watchdog() -> bool:
 class MigrationFileHandler(FileSystemEventHandler):  # type: ignore[misc]
     """Watches for changes to migration files and triggers a callback."""
 
-    def __init__(self, callback: Callable[[], None]) -> None:
+    def __init__(self, callback: Callable[[], None]) -> None:  # noqa: D107
         super().__init__()
         self.callback = callback
 

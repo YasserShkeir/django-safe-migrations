@@ -6,8 +6,6 @@ import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from django_safe_migrations.diff import (
     _find_git_root,
     get_changed_apps_and_migrations,
@@ -23,7 +21,9 @@ class TestFindGitRoot:
         mock_result = MagicMock()
         mock_result.stdout = "/home/user/project\n"
 
-        with patch("django_safe_migrations.diff.subprocess.run", return_value=mock_result):
+        with patch(
+            "django_safe_migrations.diff.subprocess.run", return_value=mock_result
+        ):
             root = _find_git_root()
 
         assert root == "/home/user/project"
@@ -33,7 +33,9 @@ class TestFindGitRoot:
         mock_result = MagicMock()
         mock_result.stdout = "/home/user/project  \n"
 
-        with patch("django_safe_migrations.diff.subprocess.run", return_value=mock_result):
+        with patch(
+            "django_safe_migrations.diff.subprocess.run", return_value=mock_result
+        ):
             root = _find_git_root()
 
         assert root == "/home/user/project"
@@ -70,7 +72,7 @@ class TestGetChangedMigrationFiles:
         migration_file = app_dir / "0002_add_field.py"
         migration_file.write_text("# migration")
 
-        git_diff_output = f"myapp/migrations/0002_add_field.py\n"
+        git_diff_output = "myapp/migrations/0002_add_field.py\n"
         mock_diff_result = MagicMock()
         mock_diff_result.stdout = git_diff_output
 

@@ -79,7 +79,9 @@ def load_baseline(path: str) -> list[dict[str, Any]]:
 
     version = data.get("version", 1)
     if version != 1:
-        logger.warning("Unknown baseline version %s, attempting to load anyway", version)
+        logger.warning(
+            "Unknown baseline version %s, attempting to load anyway", version
+        )
 
     entries: list[dict[str, Any]] = data.get("issues", [])
     logger.debug("Loaded baseline with %d issues from %s", len(entries), path)
