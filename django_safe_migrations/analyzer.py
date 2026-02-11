@@ -244,10 +244,13 @@ class MigrationAnalyzer:
         issues: list[Issue] = []
         loader = MigrationLoader(None, ignore_no_migrations=True)
 
-        # Get all migrations for this app from disk_migrations
+        # Get all migrations for this app from disk_migrations.
+        # Use disk_migrations values directly instead of get_migration()
+        # because get_migration() uses graph.nodes, which may not contain
+        # replaced/squashed migrations (causing KeyError).
         app_migrations = [
-            (name, loader.get_migration(app, name))
-            for (app, name) in loader.disk_migrations.keys()
+            (name, migration)
+            for (app, name), migration in loader.disk_migrations.items()
             if app == app_label
         ]
 
@@ -359,7 +362,7 @@ class MigrationAnalyzer:
             unapplied_count += 1
             logger.debug("Checking unapplied migration: %s.%s", app, name)
 
-            migration = loader.get_migration(app, name)
+            migration = loader.disk_migrations[(app, name)]
             issues.extend(
                 self.analyze_migration(
                     migration=migration,

@@ -292,9 +292,9 @@ def get_app_migrations(app_label: str) -> list[tuple[str, Any]]:
     loader = MigrationLoader(None, ignore_no_migrations=True)
     migrations = []
 
-    for app, name in loader.disk_migrations.keys():
+    for (app, name), migration in loader.disk_migrations.items():
         if app == app_label:
-            migrations.append((name, loader.get_migration(app, name)))
+            migrations.append((name, migration))
 
     # Sort by migration name
     migrations.sort(key=lambda x: x[0])
@@ -360,13 +360,22 @@ def resolve_field_before_operation(
             logger.debug("Migration %s not in disk_migrations", migration_key)
             return None
 
+        # Skip if migration is not in the graph (e.g., replaced by a
+        # squashed migration). project_state() requires graph membership.
+        if migration_key not in loader.graph.nodes:
+            logger.debug(
+                "Migration %s not in graph (possibly replaced/squashed)",
+                migration_key,
+            )
+            return None
+
         # Build state up to (but not including) this migration
         state = loader.project_state(migration_key, at_end=False)
 
         # If the operation isn't the first one, replay earlier operations
         # in the same migration to get the exact state before this op
         if operation_index > 0:
-            migration = loader.get_migration(app_label, migration_name)
+            migration = loader.disk_migrations[migration_key]
             operations = getattr(migration, "operations", [])
             for i in range(min(operation_index, len(operations))):
                 operations[i].state_forwards(app_label, state)

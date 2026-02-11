@@ -663,12 +663,13 @@ class TestResolveFieldBeforeOperation:
     def test_resolves_field_from_testapp(self):
         """Test resolving a known field from the test project.
 
-        Resolves 'username' before migration 0002, which was created
-        in 0001_initial.
+        Resolves 'username' before migration 0005, which was created
+        in 0001_initial. (We use 0005 instead of 0002 because 0002 is
+        replaced by a squashed migration in the test project.)
         """
         result = resolve_field_before_operation(
             app_label="testapp",
-            migration_name="0002_unsafe_not_null",
+            migration_name="0005_drop_column",
             operation_index=0,
             model_name="user",
             field_name="username",
