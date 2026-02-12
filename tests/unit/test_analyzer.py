@@ -503,6 +503,122 @@ class TestAnalyzeNewMigrations:
             assert issues == []
 
 
+class TestSquashedMigrations:
+    """Tests for handling squashed/replaced migrations without KeyError."""
+
+    def test_analyze_app_with_squashed_migrations(self, mock_migration_factory):
+        """Test that analyze_app handles squashed migrations without crashing.
+
+        When migrations are squashed, the old replaced migrations exist in
+        disk_migrations but are removed from graph.nodes. Previously this
+        caused a KeyError because get_migration() uses graph.nodes.
+        """
+        from unittest.mock import MagicMock, patch
+
+        # Create a squash migration and the old replaced migrations
+        old_mig = mock_migration_factory(
+            [
+                migrations.AddField(
+                    model_name="user",
+                    name="email",
+                    field=models.CharField(max_length=255, null=True),
+                )
+            ],
+            app_label="testapp",
+            name="0001_initial",
+        )
+        squash_mig = mock_migration_factory(
+            [
+                migrations.AddField(
+                    model_name="user",
+                    name="email",
+                    field=models.CharField(max_length=255, null=True),
+                )
+            ],
+            app_label="testapp",
+            name="0002_squashed",
+        )
+        squash_mig.replaces = [("testapp", "0001_initial")]
+
+        # disk_migrations has BOTH old and squash (both exist on disk)
+        disk = {
+            ("testapp", "0001_initial"): old_mig,
+            ("testapp", "0002_squashed"): squash_mig,
+        }
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = disk
+        # graph.nodes only has the squash (old was removed by Django)
+        mock_loader.graph.nodes = {("testapp", "0002_squashed"): squash_mig}
+        mock_loader.migrated_apps = {"testapp"}
+
+        with patch(
+            "django.db.migrations.loader.MigrationLoader",
+            return_value=mock_loader,
+        ):
+            analyzer = MigrationAnalyzer(db_vendor="postgresql")
+            # Should NOT raise KeyError
+            issues = analyzer.analyze_app("testapp")
+            assert isinstance(issues, list)
+
+    def test_analyze_new_migrations_with_squashed_migrations(
+        self, mock_migration_factory
+    ):
+        """Test that analyze_new_migrations handles squashed migrations."""
+        from unittest.mock import MagicMock, patch
+
+        old_mig = mock_migration_factory(
+            [
+                migrations.AddField(
+                    model_name="user",
+                    name="email",
+                    field=models.CharField(max_length=255, null=True),
+                )
+            ],
+            app_label="testapp",
+            name="0001_initial",
+        )
+        squash_mig = mock_migration_factory(
+            [
+                migrations.AddField(
+                    model_name="user",
+                    name="email",
+                    field=models.CharField(max_length=255, null=True),
+                )
+            ],
+            app_label="testapp",
+            name="0002_squashed",
+        )
+        squash_mig.replaces = [("testapp", "0001_initial")]
+
+        disk = {
+            ("testapp", "0001_initial"): old_mig,
+            ("testapp", "0002_squashed"): squash_mig,
+        }
+
+        mock_loader = MagicMock()
+        mock_loader.disk_migrations = disk
+        mock_loader.graph.nodes = {("testapp", "0002_squashed"): squash_mig}
+
+        mock_recorder = MagicMock()
+        mock_recorder.applied_migrations.return_value = set()
+
+        with (
+            patch(
+                "django.db.migrations.loader.MigrationLoader",
+                return_value=mock_loader,
+            ),
+            patch(
+                "django.db.migrations.recorder.MigrationRecorder",
+                return_value=mock_recorder,
+            ),
+        ):
+            analyzer = MigrationAnalyzer(db_vendor="postgresql")
+            # Should NOT raise KeyError
+            issues = analyzer.analyze_new_migrations()
+            assert isinstance(issues, list)
+
+
 class TestSeverityOverrides:
     """Tests for severity overrides via Django settings."""
 

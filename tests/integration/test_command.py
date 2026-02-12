@@ -1528,3 +1528,45 @@ class TestWatchMode:
         out = StringIO()
         with pytest.raises(ImportError, match="watchdog"):
             call_command("check_migrations", watch=True, stdout=out)
+
+
+class TestSquashedMigrations:
+    """Integration tests for squashed migration handling."""
+
+    def test_squashed_migrations_no_crash(self):
+        """Test that check_migrations doesn't crash with squashed migrations.
+
+        The testapp has 0027_squashed_0002_0003 which replaces 0002 and 0003.
+        When MigrationLoader processes the graph, replaced migrations are
+        removed from graph.nodes but still exist in disk_migrations. This
+        must not cause a KeyError.
+        """
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command(
+                "check_migrations",
+                format="json",
+                stdout=out,
+            )
+        output = json.loads(out.getvalue())
+        assert output["total"] > 0
+
+    def test_squashed_migration_json_output_valid(self):
+        """Test that JSON output is valid when squashed migrations are present."""
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command(
+                "check_migrations",
+                format="json",
+                stdout=out,
+            )
+        output = json.loads(out.getvalue())
+        assert "issues" in output
+        assert "total" in output
+        # The squashed migration should be analyzed (it has an unsafe AddField)
+        squash_issues = [
+            i
+            for i in output["issues"]
+            if "0027_squashed" in i.get("migration_name", "")
+        ]
+        assert len(squash_issues) > 0, "Squashed migration 0027 should produce issues"
