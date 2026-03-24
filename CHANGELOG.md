@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-03-24
+
 ### Added
 
 - Add Python 3.14 support (#38). Added to CI matrix (against Django 6.0),
@@ -307,7 +309,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Implemented detailed security documentation regarding `EXTRA_RULES` and dynamic code loading.
 - Established security reporting policy.
 
-[Unreleased]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/YasserShkeir/django-safe-migrations/compare/v0.4.0...v0.5.0
