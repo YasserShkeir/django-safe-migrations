@@ -19,6 +19,12 @@ from pathlib import Path
 logger = logging.getLogger("django_safe_migrations")
 
 
+class DiffError(Exception):
+    """Raised when git diff fails (e.g. invalid branch/ref)."""
+
+    pass
+
+
 def get_changed_migration_files(base_ref: str = "main") -> list[str]:
     """Get migration files changed since *base_ref*.
 
@@ -30,6 +36,9 @@ def get_changed_migration_files(base_ref: str = "main") -> list[str]:
 
     Returns:
         List of absolute paths to changed migration files.
+
+    Raises:
+        DiffError: If the git ref does not exist or git command fails.
     """
     try:
         result = subprocess.run(  # nosec B603 B607
@@ -39,9 +48,16 @@ def get_changed_migration_files(base_ref: str = "main") -> list[str]:
             check=True,
             cwd=_find_git_root(),
         )
-    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-        logger.warning("Could not run git diff: %s", e)
-        return []
+    except subprocess.CalledProcessError as e:
+        msg = f"Could not run git diff against '{base_ref}': {e}"
+        if e.stderr:
+            msg += f"\ngit stderr: {e.stderr.strip()}"
+        logger.error(msg)
+        raise DiffError(msg) from e
+    except FileNotFoundError as e:
+        msg = f"git is not installed or not found: {e}"
+        logger.error(msg)
+        raise DiffError(msg) from e
 
     git_root = _find_git_root()
     changed: list[str] = []

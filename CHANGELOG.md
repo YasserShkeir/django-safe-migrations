@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add Python 3.14 support (#38). Added to CI matrix (against Django 6.0),
+  pyproject.toml classifiers, black target-version, and Docker test runner.
+
+### Fixed
+
+- Fix `--diff` silently passing when the target branch does not exist (#36).
+  `get_changed_migration_files` now raises `DiffError` instead of returning an
+  empty list, and the management command exits with code 2 and a clear message.
+- Fix `--diff` analyzing all migrations in each changed app (#35). The command
+  now loads and checks only the specific changed migrations instead of calling
+  `analyze_app()` on the entire app.
+- Fix `EXCLUDED_APPS` from `SAFE_MIGRATIONS` settings being ignored by the
+  `check_migrations` command (#39). The CLI `--exclude-apps` argument is now
+  merged with the settings-level list.
+
 ## [0.5.2] - 2026-02-12
 
 ### Fixed

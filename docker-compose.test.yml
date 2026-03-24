@@ -118,6 +118,27 @@ services:
       - .:/app
     command: pytest -v
 
+  # Test runner - Python 3.14
+  test-py314:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+      args:
+        PYTHON_VERSION: "3.14"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DJANGO_SETTINGS_MODULE=tests.settings.postgres
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=test_db
+      - POSTGRES_USER=test_user
+      - POSTGRES_PASSWORD=test_password
+    volumes:
+      - .:/app
+    command: pytest -v
+
   # MySQL test runner
   test-mysql:
     build:

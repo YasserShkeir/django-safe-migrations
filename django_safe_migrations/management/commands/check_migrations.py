@@ -172,6 +172,34 @@ class Command(BaseCommand):
                 self.stdout.write(f"    Databases: {db_str}")
                 self.stdout.write("")
 
+    @staticmethod
+    def _load_migration(
+        analyzer: MigrationAnalyzer, app_label: str, migration_name: str
+    ) -> Any:
+        """Load a specific migration by app label and name.
+
+        Args:
+            analyzer: The migration analyzer instance (unused but kept for API).
+            app_label: The app label (e.g., 'myapp').
+            migration_name: The migration name (e.g., '0001_initial').
+
+        Returns:
+            The Django migration object.
+
+        Raises:
+            CommandError: If the migration cannot be found.
+        """
+        from django.core.management.base import CommandError
+        from django.db.migrations.loader import MigrationLoader
+
+        loader = MigrationLoader(None, ignore_no_migrations=True)
+        key = (app_label, migration_name)
+        if key in loader.disk_migrations:
+            return loader.disk_migrations[key]
+        raise CommandError(
+            f"Migration '{migration_name}' not found for app '{app_label}'."
+        )
+
     def handle(self, *args: Any, **options: Any) -> None:
         """Execute the command.
 
@@ -201,11 +229,16 @@ class Command(BaseCommand):
         fail_on_warning = options["fail_on_warning"]
         new_only = options["new_only"]
         show_suggestions = not options["no_suggestions"]
-        exclude_apps = options["exclude_apps"]
+        cli_exclude_apps = options["exclude_apps"]
         include_django_apps = options["include_django_apps"]
         verbose = options.get("verbose", False)
 
-        # Build exclude list
+        # Build exclude list by merging CLI args with settings-level EXCLUDED_APPS
+        from django_safe_migrations.conf import get_excluded_apps
+
+        settings_exclude_apps = get_excluded_apps()
+        exclude_apps = list(set(cli_exclude_apps + settings_exclude_apps))
+
         if not include_django_apps:
             django_apps = [
                 "admin",
@@ -225,19 +258,31 @@ class Command(BaseCommand):
 
         diff_ref = options.get("diff")
         if diff_ref is not None:
-            from django_safe_migrations.diff import get_changed_apps_and_migrations
+            from django_safe_migrations.diff import (
+                DiffError,
+                get_changed_apps_and_migrations,
+            )
 
-            changed = get_changed_apps_and_migrations(diff_ref)
+            try:
+                changed = get_changed_apps_and_migrations(diff_ref)
+            except DiffError as e:
+                self.stderr.write(self.style.ERROR(str(e)))
+                sys.exit(2)
+
             if verbose:
                 self.stderr.write(
                     f"Diff mode: checking {len(changed)} changed migration(s)"
                 )
             for app_label, migration_name in changed:
                 if app_label not in exclude_apps:
-                    app_issues = analyzer.analyze_app(app_label)
-                    issues.extend(
-                        i for i in app_issues if i.migration_name == migration_name
+                    app_issues = analyzer.analyze_migration(
+                        migration=self._load_migration(
+                            analyzer, app_label, migration_name
+                        ),
+                        app_label=app_label,
+                        migration_name=migration_name,
                     )
+                    issues.extend(app_issues)
         elif new_only:
             if app_labels:
                 for app_label in app_labels:

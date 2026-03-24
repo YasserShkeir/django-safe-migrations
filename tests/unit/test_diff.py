@@ -6,6 +6,8 @@ import os
 import subprocess
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from django_safe_migrations.diff import (
     _find_git_root,
     get_changed_apps_and_migrations,
@@ -136,8 +138,10 @@ class TestGetChangedMigrationFiles:
 
         assert files == []
 
-    def test_returns_empty_on_git_error(self):
-        """Test that an empty list is returned when git diff fails."""
+    def test_raises_diff_error_on_git_error(self):
+        """Test that DiffError is raised when git diff fails."""
+        from django_safe_migrations.diff import DiffError
+
         mock_root_result = MagicMock()
         mock_root_result.stdout = "/tmp\n"
 
@@ -147,12 +151,13 @@ class TestGetChangedMigrationFiles:
             raise subprocess.CalledProcessError(1, "git")
 
         with patch("django_safe_migrations.diff.subprocess.run", side_effect=mock_run):
-            files = get_changed_migration_files("main")
+            with pytest.raises(DiffError, match="Could not run git diff"):
+                get_changed_migration_files("main")
 
-        assert files == []
+    def test_raises_diff_error_on_file_not_found(self):
+        """Test that DiffError is raised when git is not installed."""
+        from django_safe_migrations.diff import DiffError
 
-    def test_returns_empty_on_file_not_found(self):
-        """Test that an empty list is returned when git is not installed."""
         mock_root_result = MagicMock()
         mock_root_result.stdout = "/tmp\n"
 
@@ -162,9 +167,8 @@ class TestGetChangedMigrationFiles:
             raise FileNotFoundError("git not found")
 
         with patch("django_safe_migrations.diff.subprocess.run", side_effect=mock_run):
-            files = get_changed_migration_files("main")
-
-        assert files == []
+            with pytest.raises(DiffError, match="git is not installed"):
+                get_changed_migration_files("main")
 
     def test_uses_custom_base_ref(self, tmp_path):
         """Test that the base_ref parameter is passed to git diff."""
