@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add Python 3.14 support (#38). Added to CI matrix (against Django 6.0),
+  pyproject.toml classifiers, black target-version, and Docker test runner.
+
 ### Fixed
 
 - Fix `--diff` silently passing when the target branch does not exist (#36).
