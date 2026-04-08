@@ -159,7 +159,7 @@ jobs:
           pytest tests -v -n auto
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         if: matrix.python-version == '3.12' && matrix.django-version == '4.2'
         with:
           files: ./coverage.xml
