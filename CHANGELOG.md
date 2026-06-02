@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix `--diff` misidentifying app labels when `AppConfig.label` differs from
+  the package directory name. The app label is now resolved via Django's app
+  registry (`AppConfig.path`) instead of assuming directory name equals label.
+
 ## [0.6.0] - 2026-03-24
 
 ### Added
