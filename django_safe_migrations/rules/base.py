@@ -34,6 +34,9 @@ class Issue:
         line_number: Line number in the migration file.
         app_label: The Django app label.
         migration_name: The migration name (e.g., '0002_add_field').
+        operation_index: Index of the operation within the migration's
+            ``operations`` list. Disambiguates multiple operations of the
+            same type in one migration (e.g. several ``RunSQL`` ops).
     """
 
     rule_id: str
@@ -45,6 +48,7 @@ class Issue:
     line_number: Optional[int] = None
     app_label: Optional[str] = None
     migration_name: Optional[str] = None
+    operation_index: Optional[int] = None
 
     def __str__(self) -> str:
         """Return a string representation of the issue."""
@@ -72,6 +76,7 @@ class Issue:
             "line_number": self.line_number,
             "app_label": self.app_label,
             "migration_name": self.migration_name,
+            "operation_index": self.operation_index,
         }
 
 

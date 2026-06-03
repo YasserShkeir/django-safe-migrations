@@ -1417,7 +1417,7 @@ class TestBaselineIntegration:
         # Verify the file exists and contains valid JSON
         content = (tmp_path / "baseline.json").read_text(encoding="utf-8")
         data = json.loads(content)
-        assert data["version"] == 1
+        assert data["version"] == 2
         assert data["count"] > 0
         assert len(data["issues"]) > 0
 
