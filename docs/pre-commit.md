@@ -30,7 +30,7 @@ You can also use the hook directly from the repository:
 ```yaml
 repos:
   - repo: https://github.com/YasserShkeir/django-safe-migrations
-    rev: v0.2.0  # Use the latest version
+    rev: v0.6.1  # Use the latest version
     hooks:
       - id: check-migrations
 ```

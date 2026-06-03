@@ -39,7 +39,7 @@ ERROR [SM001] myapp/migrations/0002_add_email.py:15
 ## Features
 
 - **36 built-in rules** covering schema changes, locking, data loss, and best practices
-- **PostgreSQL-aware** rules for concurrent indexes, TEXT vs VARCHAR, IDENTITY columns
+- **Database-aware** rules, including PostgreSQL-specific checks for concurrent indexes, TEXT vs VARCHAR, and IDENTITY columns, plus MySQL- and SQLite-specific categories
 - **Fix suggestions** with safe migration patterns for every issue
 - **CI/CD ready** — GitHub Actions, GitLab Code Quality, JSON, SARIF output
 - **Fast** — static analysis without running migrations

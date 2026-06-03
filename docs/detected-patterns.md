@@ -580,12 +580,19 @@ ______________________________________________________________________
 ### The Unsafe Pattern
 
 ```python
+# testapp/migrations/0021_autofield_primary_key.py
+
 class Migration(migrations.Migration):
     operations = [
-        migrations.AddField(
-            model_name='order',
-            name='id',
-            field=models.AutoField(primary_key=True),
+        migrations.CreateModel(
+            name="LegacyItem",
+            fields=[
+                (
+                    "id",
+                    models.AutoField(primary_key=True, serialize=False),
+                ),
+                ("name", models.CharField(max_length=100)),
+            ],
         ),
     ]
 ```
@@ -593,7 +600,7 @@ class Migration(migrations.Migration):
 ### Tool Output
 
 ```
-WARNING [SM028] myapp/migrations/0021_autofield.py
+WARNING [SM028] testapp/migrations/0021_autofield_primary_key.py
   Prefer BigAutoField over 32-bit AutoField for primary keys.
   32-bit integers max out at ~2.1 billion rows.
 ```
@@ -618,11 +625,13 @@ ______________________________________________________________________
 ### The Unsafe Pattern
 
 ```python
+# testapp/migrations/0023_remove_index.py
+
 class Migration(migrations.Migration):
     operations = [
         migrations.RemoveIndex(
-            model_name='order',
-            name='order_status_idx',
+            model_name='user',
+            name='testapp_user_uname_idx',
         ),
     ]
 ```
@@ -630,7 +639,7 @@ class Migration(migrations.Migration):
 ### Tool Output
 
 ```
-ERROR [SM030] myapp/migrations/0023_remove_index.py
+ERROR [SM030] testapp/migrations/0023_remove_index.py
   Index removal without CONCURRENTLY will lock the table on PostgreSQL.
 ```
 
@@ -652,8 +661,8 @@ class Migration(migrations.Migration):
 
     operations = [
         RemoveIndexConcurrently(
-            model_name='order',
-            name='order_status_idx',
+            model_name='user',
+            name='testapp_user_uname_idx',
         ),
     ]
 ```
@@ -667,12 +676,14 @@ ______________________________________________________________________
 ### The Unsafe Pattern
 
 ```python
+# testapp/migrations/0024_field_with_default.py
+
 class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
-            model_name='order',
+            model_name='user',
             name='status',
-            field=models.CharField(max_length=20, default='pending'),
+            field=models.CharField(max_length=20, default='active'),
         ),
     ]
 ```
@@ -680,7 +691,7 @@ class Migration(migrations.Migration):
 ### Tool Output
 
 ```
-WARNING [SM033] myapp/migrations/0025_add_status.py
+WARNING [SM033] testapp/migrations/0024_field_with_default.py
   Adding NOT NULL field with Python default rewrites all existing rows.
 ```
 
@@ -699,9 +710,9 @@ When you add a NOT NULL column with a Python-level `default`:
 # Django 5.0+: Use db_default to set the default at the database level
 # without rewriting existing rows on supported databases
 migrations.AddField(
-    model_name='order',
+    model_name='user',
     name='status',
-    field=models.CharField(max_length=20, db_default='pending'),
+    field=models.CharField(max_length=20, db_default='active'),
 )
 ```
 
@@ -714,10 +725,13 @@ ______________________________________________________________________
 ### The Unsafe Pattern
 
 ```python
+# testapp/migrations/0025_run_sql_no_lock_timeout.py
+
 class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
-            sql="ALTER TABLE myapp_order ADD COLUMN priority INTEGER DEFAULT 0;",
+            sql="ALTER TABLE testapp_user ADD COLUMN temp_col INTEGER",
+            reverse_sql="ALTER TABLE testapp_user DROP COLUMN temp_col",
         ),
     ]
 ```
@@ -725,7 +739,7 @@ class Migration(migrations.Migration):
 ### Tool Output
 
 ```
-INFO [SM035] myapp/migrations/0026_alter_order.py
+INFO [SM035] testapp/migrations/0025_run_sql_no_lock_timeout.py
   RunSQL with DDL should set lock_timeout to avoid blocking.
 ```
 
@@ -739,9 +753,9 @@ DDL statements like `ALTER TABLE` acquire locks that can block other queries. Wi
 migrations.RunSQL(
     sql=[
         "SET lock_timeout = '5s';",
-        "ALTER TABLE myapp_order ADD COLUMN priority INTEGER DEFAULT 0;",
+        "ALTER TABLE testapp_user ADD COLUMN temp_col INTEGER",
     ],
-    reverse_sql="ALTER TABLE myapp_order DROP COLUMN priority;",
+    reverse_sql="ALTER TABLE testapp_user DROP COLUMN temp_col",
 )
 ```
 
@@ -768,6 +782,6 @@ You should see output detecting all the unsafe patterns documented above.
 
 ## See Also
 
-- [Rules Reference](rules/index.md) - Detailed documentation for each rule
+- [Rules Reference](rules.md) - Detailed documentation for each rule
 - [Safe Patterns](patterns.md) - Comprehensive guide to safe migration patterns
 - [Configuration](configuration.md) - How to suppress or configure rules

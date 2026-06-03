@@ -36,7 +36,7 @@ SAFE_MIGRATIONS = {
         "oauth2_provider",
     ],
 
-    # Per-app rule configuration (v0.3.0+)
+    # Per-app rule configuration
     "APP_RULES": {
         "legacy_app": {
             "DISABLED_RULES": ["SM001", "SM002"],  # Relax rules for legacy
@@ -68,20 +68,25 @@ SAFE_MIGRATIONS = {
 
 Disable entire categories of rules at once. Available categories:
 
-| Category          | Description               | Rules                                           |
-| ----------------- | ------------------------- | ----------------------------------------------- |
-| `postgresql`      | PostgreSQL-specific rules | SM005, SM010, SM011, SM012, SM013, SM018        |
-| `indexes`         | Index-related operations  | SM010, SM011, SM018                             |
-| `constraints`     | Constraint operations     | SM009, SM011, SM015, SM017                      |
-| `destructive`     | Destructive operations    | SM002, SM003, SM009                             |
-| `locking`         | Table-locking operations  | SM004, SM005, SM010, SM011, SM013               |
-| `data-loss`       | Potential data loss       | SM002, SM003, SM009                             |
-| `reversibility`   | Non-reversible migrations | SM007, SM016, SM017                             |
-| `data-migrations` | Data migration concerns   | SM007, SM008, SM016, SM017                      |
-| `high-risk`       | High-risk operations      | SM001, SM002, SM003, SM010, SM011, SM018        |
-| `informational`   | Info-level warnings       | SM006, SM014, SM019                             |
-| `naming`          | Naming convention rules   | SM019                                           |
-| `schema-changes`  | Schema modification rules | SM001, SM002, SM003, SM004, SM006, SM013, SM014 |
+| Category          | Description               | Rules                                                                                            |
+| ----------------- | ------------------------- | ------------------------------------------------------------------------------------------------ |
+| `postgresql`      | PostgreSQL-specific rules | SM005, SM010, SM011, SM012, SM013, SM018, SM021, SM030, SM031, SM034                             |
+| `mysql`           | MySQL-specific rules      | (none currently)                                                                                 |
+| `sqlite`          | SQLite-specific rules     | (none currently)                                                                                 |
+| `indexes`         | Index-related operations  | SM010, SM011, SM018, SM021, SM030                                                                |
+| `constraints`     | Constraint operations     | SM009, SM011, SM015, SM017, SM020, SM021                                                         |
+| `destructive`     | Destructive operations    | SM002, SM003, SM009                                                                              |
+| `relations`       | Relation operations       | SM005, SM023, SM025                                                                              |
+| `locking`         | Table-locking operations  | SM004, SM005, SM010, SM011, SM013, SM020, SM021, SM030                                           |
+| `data-loss`       | Potential data loss       | SM002, SM003, SM009, SM029                                                                       |
+| `reversibility`   | Non-reversible migrations | SM007, SM016, SM017                                                                              |
+| `data-migrations` | Data migration concerns   | SM007, SM008, SM016, SM017, SM022, SM026                                                         |
+| `security`        | Security-related rules    | SM024                                                                                            |
+| `high-risk`       | High-risk operations      | SM001, SM002, SM003, SM010, SM011, SM018, SM020, SM021, SM024, SM027, SM030                      |
+| `informational`   | Info-level warnings       | SM006, SM014, SM019, SM023, SM031, SM032, SM034, SM035, SM036                                    |
+| `naming`          | Naming convention rules   | SM019                                                                                            |
+| `schema-changes`  | Schema modification rules | SM001, SM002, SM003, SM004, SM006, SM013, SM014, SM020, SM021, SM023, SM027, SM028, SM029, SM033 |
+| `performance`     | Performance concerns      | SM022, SM025, SM026, SM028, SM033                                                                |
 
 ```python
 SAFE_MIGRATIONS = {
@@ -322,6 +327,15 @@ Hide the fix suggestions in output:
 
 ```bash
 python manage.py check_migrations --no-suggestions
+```
+
+### `--output` / `-o`
+
+Write the report to a file instead of stdout:
+
+```bash
+python manage.py check_migrations --format=json --output report.json
+python manage.py check_migrations --format=sarif -o results.sarif
 ```
 
 ### `--exclude-apps`

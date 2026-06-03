@@ -41,4 +41,4 @@ ______________________________________________________________________
 
 1. **Hybrid Ruleset**: We cover both "scary locking operations" (like `strong_migrations`) and "unsafe dropping of data" (like the linter).
 2. **Suggestive Fixes**: We don't just say "Error". We output the actual Python code snippet you should specifically use to fix the issue (e.g., proper 3-step migration for adding a column).
-3. **Modern Ecosystem**: Built from the ground up for GitHub Actions (annotations support) and modern Django versions (3.2 - 5.1+).
+3. **Modern Ecosystem**: Built from the ground up for GitHub Actions (annotations support) and modern Django versions (3.2 - 6.0).

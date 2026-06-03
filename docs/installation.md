@@ -49,13 +49,18 @@ Run the management command:
 python manage.py check_migrations --help
 ```
 
-You should see:
+You should see the command's help text listing the available options,
+including the output formats and flags:
 
 ```
-usage: manage.py check_migrations [-h] [--format {console,json,github}]
-                                  [--fail-on-warning] [--new-only]
-                                  [--no-suggestions] [--exclude-apps ...]
-                                  [--include-django-apps]
+usage: manage.py check_migrations [-h]
+                                  [--format {console,json,github,gitlab,sarif}]
+                                  [--output OUTPUT] [--fail-on-warning]
+                                  [--new-only] [--no-suggestions]
+                                  [--exclude-apps ...] [--include-django-apps]
+                                  [--diff] [--baseline BASELINE]
+                                  [--generate-baseline] [--interactive]
+                                  [--watch] [--list-rules] [--verbose]
                                   [app_labels ...]
 
 Check migrations for unsafe operations

@@ -314,7 +314,7 @@ ______________________________________________________________________
 
 **Severity:** WARNING
 
-**Databases:** All
+**Databases:** PostgreSQL
 
 ### What it detects
 
@@ -387,7 +387,7 @@ ______________________________________________________________________
 Renaming a column:
 
 ```python
-# ℹ INFO
+# INFO
 migrations.RenameField(
     model_name='user',
     old_name='username',
@@ -485,7 +485,7 @@ ______________________________________________________________________
 RunPython data migrations:
 
 ```python
-# ℹ INFO
+# INFO
 def update_all_users(apps, schema_editor):
     User = apps.get_model('myapp', 'User')
     for user in User.objects.all():
@@ -632,7 +632,7 @@ ______________________________________________________________________
 
 **Severity:** ERROR
 
-**Databases:** All (especially PostgreSQL)
+**Databases:** Non-PostgreSQL (on PostgreSQL, the more specific [SM011](#sm011-non-concurrent-unique-constraint) takes over)
 
 ### What it detects
 
@@ -1047,7 +1047,7 @@ ______________________________________________________________________
 
 **Severity:** ERROR
 
-**Databases:** All
+**Databases:** PostgreSQL
 
 ### What it detects
 
@@ -1443,11 +1443,11 @@ ______________________________________________________________________
 
 ### What it detects
 
-`AddField` or `CreateModel` using `AutoField`, `SmallAutoField`, or `IntegerField` as a primary key. These 32-bit integer types max out at ~2.1 billion rows.
+`AddField` or `CreateModel` using `AutoField` or `SmallAutoField` as a primary key. These 32-bit integer types max out at ~2.1 billion rows.
 
 ### Why it's dangerous
 
-Once a 32-bit primary key overflows, inserts fail with `IntegerError`. Migrating a large table from `AutoField` to `BigAutoField` requires a full table rewrite with an ACCESS EXCLUSIVE lock.
+Once a 32-bit primary key overflows, inserts fail with an "integer out of range" error (`DataError`). Migrating a large table from `AutoField` to `BigAutoField` requires a full table rewrite with an ACCESS EXCLUSIVE lock.
 
 ### Safe pattern
 
