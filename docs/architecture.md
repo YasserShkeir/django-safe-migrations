@@ -40,10 +40,10 @@ This document describes the high-level architecture of django-safe-migrations.
                                   │
                     ┌─────────────┼─────────────┐
                     ▼             ▼             ▼
-              ┌──────────┐ ┌──────────┐ ┌──────────┐
-              │ Console  │ │  JSON    │ │  SARIF   │
-              │ Reporter │ │ Reporter │ │ Reporter │
-              └──────────┘ └──────────┘ └──────────┘
+              ┌────────────────────────────────────┐
+              │ Reporters                          │
+              │ (console/json/github/gitlab/sarif) │
+              └────────────────────────────────────┘
 ```
 
 ## Core Components
@@ -94,10 +94,10 @@ The core analysis engine:
 class MigrationAnalyzer:
     def __init__(
         self,
-        db_vendor: str = "postgresql",
         rules: list[BaseRule] | None = None,
+        db_vendor: str | None = None,
         disabled_rules: set[str] | None = None,
-        excluded_apps: set[str] | None = None,
+        verbose: bool = False,
     ):
         ...
 
@@ -185,11 +185,11 @@ Rules are organized by the operation type they check:
 rules/
 ├── __init__.py        # Rule registry, get_all_rules()
 ├── base.py            # BaseRule, Issue, Severity
-├── add_field.py       # SM001, SM022
+├── add_field.py       # SM001, SM022, SM028, SM031-SM034
 ├── remove_field.py    # SM002, SM003
-├── alter_field.py     # SM004-SM006, SM013-SM014, SM020-SM021
-├── run_sql.py         # SM007-SM008, SM012, SM016, SM024, SM026
-├── add_index.py       # SM010-SM011, SM018
+├── alter_field.py     # SM004-SM006, SM013-SM014, SM020-SM021, SM029
+├── run_sql.py         # SM007-SM008, SM012, SM016, SM024, SM026, SM035-SM036
+├── add_index.py       # SM010-SM011, SM018, SM030
 ├── constraints.py     # SM009, SM015, SM017
 ├── naming.py          # SM019
 ├── relations.py       # SM023, SM025
@@ -225,19 +225,19 @@ def get_rule_by_id(rule_id: str) -> type[BaseRule] | None:
 Handles settings from `settings.SAFE_MIGRATIONS`:
 
 ```python
-def get_safe_migrations_settings() -> dict:
+def get_config() -> dict:
     """Get the SAFE_MIGRATIONS dict from Django settings."""
     ...
 
-def get_disabled_rules() -> set[str]:
+def get_disabled_rules() -> list[str]:
     """Get disabled rule IDs."""
     ...
 
-def get_disabled_categories() -> set[str]:
+def get_disabled_categories() -> list[str]:
     """Get disabled categories."""
     ...
 
-def get_excluded_apps() -> set[str]:
+def get_excluded_apps() -> list[str]:
     """Get excluded app labels."""
     ...
 
@@ -250,7 +250,7 @@ def validate_config() -> list[str]:
     ...
 ```
 
-### Reporters (`reporters.py`, `sarif_reporter.py`, `reporters/`)
+### Reporters (`reporters/`)
 
 Format issues for output:
 
@@ -260,7 +260,7 @@ class ConsoleReporter:
     def report(self, issues: list[Issue]) -> str:
         ...
 
-class JSONReporter:
+class JsonReporter:
     """Machine-readable JSON output."""
     def report(self, issues: list[Issue]) -> str:
         ...
@@ -270,7 +270,7 @@ class GitHubReporter:
     def report(self, issues: list[Issue]) -> str:
         ...
 
-class SARIFReporter:
+class SarifReporter:
     """SARIF format for code scanning."""
     def report(self, issues: list[Issue]) -> str:
         ...
@@ -287,15 +287,16 @@ Handles inline suppression comments:
 
 ```python
 def is_operation_suppressed(
-    migration,
-    operation,
+    file_path: str,
+    operation_line: int,
     rule_id: str,
+    suppressions: dict[int, Suppression] | None = None,
 ) -> bool:
     """Check if operation is suppressed for a rule."""
     ...
 
-def parse_suppression_comment(comment: str) -> set[str]:
-    """Parse rule IDs from suppression comment."""
+def parse_suppression_comment(line: str, line_number: int) -> Suppression | None:
+    """Parse rule IDs from a suppression comment."""
     # Recognizes: # safe-migrations: ignore SM001, SM002
     ...
 ```
@@ -444,8 +445,8 @@ django-safe-migrations is **single-threaded**:
 
 ### Required
 
-- Python 3.10+
-- Django 4.2+
+- Python 3.9+
+- Django 3.2+
 
 ### Optional
 
@@ -458,20 +459,26 @@ django-safe-migrations is **single-threaded**:
 django_safe_migrations/
 ├── __init__.py              # Package exports, version
 ├── analyzer.py              # Core MigrationAnalyzer
+├── apps.py                  # Django AppConfig
 ├── baseline.py              # Baseline support for suppressing known issues
 ├── cli.py                   # Standalone CLI
 ├── conf.py                  # Configuration handling
 ├── diff.py                  # Git-based diff mode for checking only changed migrations
 ├── interactive.py           # Interactive review mode for triaging issues
-├── reporters.py             # Output formatters
-├── sarif_reporter.py        # SARIF format support
 ├── suppression.py           # Inline suppression
+├── utils.py                 # Shared helpers (before-state resolution, etc.)
 ├── watch.py                 # File watcher for continuous analysis (requires watchdog)
 ├── management/
 │   └── commands/
 │       └── check_migrations.py  # Django command
 ├── reporters/
-│   └── gitlab.py            # GitLab Code Quality reporter
+│   ├── __init__.py          # Reporter registry
+│   ├── base.py              # BaseReporter
+│   ├── console.py           # ConsoleReporter
+│   ├── json_reporter.py     # JsonReporter
+│   ├── github.py            # GitHubReporter
+│   ├── gitlab.py            # GitLabReporter (GitLab Code Quality)
+│   └── sarif.py             # SarifReporter (SARIF code scanning)
 └── rules/
     ├── __init__.py          # Rule registry
     ├── base.py              # BaseRule, Issue, Severity

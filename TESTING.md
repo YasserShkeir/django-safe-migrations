@@ -21,8 +21,8 @@ ______________________________________________________________________
 
 The testing strategy is designed to ensure `django-safe-migrations` works correctly across:
 
-- **Python versions**: 3.9, 3.10, 3.11, 3.12, 3.13
-- **Django versions**: 3.2, 4.2, 5.0, 5.1
+- **Python versions**: 3.9, 3.10, 3.11, 3.12, 3.13, 3.14
+- **Django versions**: 3.2, 4.2, 5.0, 5.1, 6.0
 - **Database backends**: SQLite, PostgreSQL, MySQL/MariaDB
 - **Operating systems**: Linux (Ubuntu), macOS, Windows
 
@@ -32,8 +32,9 @@ The testing strategy is designed to ensure `django-safe-migrations` works correc
 | ----------------- | --------------------------------------- | -------------------- | ------------- |
 | Unit Tests        | Test individual components in isolation | `tests/unit/`        | Every commit  |
 | Integration Tests | Test components working together        | `tests/integration/` | Every commit  |
-| Database Tests    | Test database-specific behavior         | `tests/database/`    | CI matrix     |
-| End-to-End Tests  | Test complete workflows                 | `tests/e2e/`         | PR/Release    |
+
+Database-specific behavior is covered within `tests/unit/` and `tests/integration/`,
+gated by the `@pytest.mark.postgres` and `@pytest.mark.mysql` markers.
 
 ______________________________________________________________________
 
@@ -42,16 +43,18 @@ ______________________________________________________________________
 ### Python × Django Compatibility Matrix
 
 ```
-             │ Django 3.2 │ Django 4.2 │ Django 5.0 │ Django 5.1 │
-─────────────┼────────────┼────────────┼────────────┼────────────┤
-Python 3.9   │     ✅     │     ✅     │     ❌     │     ❌     │
-Python 3.10  │     ✅     │     ✅     │     ✅     │     ✅     │
-Python 3.11  │     ✅     │     ✅     │     ✅     │     ✅     │
-Python 3.12  │     ❌     │     ✅     │     ✅     │     ✅     │
-Python 3.13  │     ❌     │     ✅     │     ✅     │     ✅     │
+             │ Django 3.2 │ Django 4.2 │ Django 5.0 │ Django 5.1 │ Django 6.0 │
+─────────────┼────────────┼────────────┼────────────┼────────────┼────────────┤
+Python 3.9   │    Yes     │    Yes     │     No     │     No     │     No     │
+Python 3.10  │    Yes     │    Yes     │    Yes     │    Yes     │     No     │
+Python 3.11  │    Yes     │    Yes     │    Yes     │    Yes     │     No     │
+Python 3.12  │     No     │    Yes     │    Yes     │    Yes     │    Yes     │
+Python 3.13  │     No     │    Yes     │    Yes     │    Yes     │    Yes     │
+Python 3.14  │     No     │     No     │     No     │     No     │    Yes     │
 ```
 
-**Note**: Django 5.x requires Python 3.10+; Django 3.2 doesn't support Python 3.12+.
+**Note**: Django 5.0+ requires Python 3.10+; Django 6.0 requires Python 3.12+;
+Django 3.2 doesn't support Python 3.12+; Python 3.14 is only tested with Django 6.0.
 
 ### Using Tox for Matrix Testing
 
@@ -73,14 +76,15 @@ tox --listenvs
 
 ```ini
 [tox]
+isolated_build = True
 envlist =
     py39-django{32,42}
     py310-django{32,42,50,51}
-    py311-django{32,42,50,51}
-    py312-django{42,50,51}
-    py313-django{42,50,51}
+    py311-django{42,50,51}
+    py312-django{42,50,51,60}
+    py313-django{42,50,51,60}
     lint
-    type-check
+    typecheck
 
 [testenv]
 deps =
@@ -88,22 +92,35 @@ deps =
     django42: Django>=4.2,<5.0
     django50: Django>=5.0,<5.1
     django51: Django>=5.1,<5.2
+    django60: Django>=6.0,<6.1
     pytest>=7.0
     pytest-django>=4.5
     pytest-cov>=4.0
+    pytest-xdist>=3.0
 commands =
-    pytest {posargs:tests/}
+    pytest tests -n 2 -q --cov=django_safe_migrations --cov-report=term-missing {posargs}
 
 [testenv:lint]
-deps = pre-commit
-commands = pre-commit run --all-files
+skip_install = true
+deps =
+    black>=22.0
+    flake8>=5.0
+    isort>=5.0
+commands =
+    black --check django_safe_migrations tests
+    isort --check-only django_safe_migrations tests
+    flake8 django_safe_migrations tests
 
-[testenv:type-check]
+[testenv:typecheck]
 deps =
     mypy>=1.0
     django-stubs>=4.0
-commands = mypy django_safe_migrations/
+    Django>=4.2
+commands =
+    mypy django_safe_migrations
 ```
+
+See the actual `tox.ini` in the repository for the full configuration.
 
 ______________________________________________________________________
 
@@ -158,16 +175,16 @@ pytest -x
 make test
 
 # Run tests with coverage
-make coverage
+make test-cov
 
 # Run linting
 make lint
 
 # Run type checking
-make type-check
+make typecheck
 
-# Run all checks
-make check
+# Run all CI checks (lint, typecheck, test)
+make ci-check
 ```
 
 ______________________________________________________________________
@@ -269,7 +286,7 @@ Create `docker-compose.test.yml`:
 version: "3.9"
 
 services:
-  # PostgreSQL Database
+  # PostgreSQL Database (exposed on host port 15432)
   postgres:
     image: postgres:15-alpine
     environment:
@@ -277,14 +294,14 @@ services:
       POSTGRES_USER: test_user
       POSTGRES_PASSWORD: test_password
     ports:
-      - "5432:5432"
+      - "15432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U test_user -d test_db"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # MySQL Database
+  # MySQL Database (exposed on host port 13306)
   mysql:
     image: mysql:8.0
     environment:
@@ -293,14 +310,15 @@ services:
       MYSQL_PASSWORD: test_password
       MYSQL_ROOT_PASSWORD: root_password
     ports:
-      - "3306:3306"
+      - "13306:3306"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # Test runner - Python 3.11
+  # Test runner - Python 3.11 (representative; the real file also defines
+  # test-py310, test-py312, test-py313, test-py314, test-mysql, and test-all-dbs)
   test-py311:
     build:
       context: .
@@ -313,44 +331,18 @@ services:
       mysql:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgres://test_user:test_password@postgres:5432/test_db
-      - MYSQL_URL=mysql://test_user:test_password@mysql:3306/test_db
+      - DJANGO_SETTINGS_MODULE=tests.settings.postgres
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=test_db
+      - POSTGRES_USER=test_user
+      - POSTGRES_PASSWORD=test_password
     volumes:
       - .:/app
     command: pytest -v --cov=django_safe_migrations
-
-  # Test runner - Python 3.12
-  test-py312:
-    build:
-      context: .
-      dockerfile: Dockerfile.test
-      args:
-        PYTHON_VERSION: "3.12"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      - DATABASE_URL=postgres://test_user:test_password@postgres:5432/test_db
-    volumes:
-      - .:/app
-    command: pytest -v
-
-  # Test runner - Python 3.13
-  test-py313:
-    build:
-      context: .
-      dockerfile: Dockerfile.test
-      args:
-        PYTHON_VERSION: "3.13"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    environment:
-      - DATABASE_URL=postgres://test_user:test_password@postgres:5432/test_db
-    volumes:
-      - .:/app
-    command: pytest -v
 ```
+
+See the actual `docker-compose.test.yml` in the repository for the full configuration.
 
 ### Dockerfile.test
 
@@ -368,12 +360,14 @@ RUN apt-get update && apt-get install -y \
     pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Python dependencies
-COPY pyproject.toml .
+# Copy all source code first
+COPY . .
+
+# Install Python dependencies including the package itself and database drivers
 RUN pip install --no-cache-dir -e ".[dev,postgres,mysql]"
 
-# Copy source code
-COPY . .
+# Set PYTHONPATH to include the app directory
+ENV PYTHONPATH=/app
 
 # Run tests by default
 CMD ["pytest", "-v"]
@@ -383,16 +377,16 @@ CMD ["pytest", "-v"]
 
 ```bash
 # Run all tests with all databases
-docker-compose -f docker-compose.test.yml up --build
+docker compose -f docker-compose.test.yml up --build
 
 # Run specific Python version
-docker-compose -f docker-compose.test.yml up test-py312 --build
+docker compose -f docker-compose.test.yml up test-py312 --build
 
 # Run with specific database only
-docker-compose -f docker-compose.test.yml up postgres test-py311 --build
+docker compose -f docker-compose.test.yml up postgres test-py311 --build
 
 # Clean up
-docker-compose -f docker-compose.test.yml down -v
+docker compose -f docker-compose.test.yml down -v
 ```
 
 ______________________________________________________________________
@@ -405,11 +399,11 @@ Some rules only apply to specific databases:
 
 | Rule                        | SQLite | PostgreSQL | MySQL |
 | --------------------------- | ------ | ---------- | ----- |
-| SM001 (NOT NULL)            | ✅     | ✅         | ✅    |
-| SM002 (Drop Column)         | ✅     | ✅         | ✅    |
-| SM003 (Drop Table)          | ✅     | ✅         | ✅    |
-| SM010 (Index CONCURRENTLY)  | ❌     | ✅         | ❌    |
-| SM011 (Unique CONCURRENTLY) | ❌     | ✅         | ❌    |
+| SM001 (NOT NULL)            | Yes    | Yes        | Yes   |
+| SM002 (Drop Column)         | Yes    | Yes        | Yes   |
+| SM003 (Drop Table)          | Yes    | Yes        | Yes   |
+| SM010 (Index CONCURRENTLY)  | No     | Yes        | No    |
+| SM011 (Unique CONCURRENTLY) | No     | Yes        | No    |
 
 ### Test Settings per Database
 
@@ -475,20 +469,21 @@ DJANGO_SETTINGS_MODULE=tests.settings.mysql pytest
 
 ### Database-Specific Test Markers
 
-Use pytest markers to run database-specific tests:
+Use pytest markers to run database-specific tests. The markers themselves are
+declared in `pyproject.toml` under `[tool.pytest.ini_options]`, and `conftest.py`
+contains the skip-by-database-vendor logic that deselects tests when the active
+backend does not match the marker:
+
+```toml
+# pyproject.toml
+[tool.pytest.ini_options]
+markers = [
+    "postgres: mark test as requiring PostgreSQL",
+    "mysql: mark test as requiring MySQL",
+]
+```
 
 ```python
-# In conftest.py
-import pytest
-
-def pytest_configure(config):
-    config.addinivalue_line(
-        "markers", "postgres: mark test as requiring PostgreSQL"
-    )
-    config.addinivalue_line(
-        "markers", "mysql: mark test as requiring MySQL"
-    )
-
 # In test files
 @pytest.mark.postgres
 def test_concurrent_index_on_postgres():
@@ -514,148 +509,73 @@ ______________________________________________________________________
 
 **.github/workflows/ci.yml:**
 
+The CI workflow runs a Python x Django matrix on `ubuntu-latest`, with PostgreSQL
+and MySQL services attached to every matrix job (so SQLite, PostgreSQL, and MySQL
+are all exercised in a single test step). The matrix and its exclude rules mirror
+the supported-versions table above.
+
 ```yaml
 name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
   pull_request:
     branches: [main]
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install pre-commit
-        run: pip install pre-commit
-      - name: Run pre-commit
-        run: pre-commit run --all-files
-
   test:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
+    needs: lint
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
-        django-version: ["3.2", "4.2", "5.0", "5.1"]
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        django-version: ["3.2", "4.2", "5.0", "5.1", "6.0"]
         exclude:
-          # Django 5.x requires Python 3.10+
+          # Django 5.0+ requires Python 3.10+
           - python-version: "3.9"
             django-version: "5.0"
           - python-version: "3.9"
             django-version: "5.1"
+          # Django 6.0 requires Python 3.12+
+          - python-version: "3.9"
+            django-version: "6.0"
+          - python-version: "3.10"
+            django-version: "6.0"
+          - python-version: "3.11"
+            django-version: "6.0"
           # Django 3.2 doesn't support Python 3.12+
           - python-version: "3.12"
             django-version: "3.2"
           - python-version: "3.13"
             django-version: "3.2"
+          - python-version: "3.14"
+            django-version: "3.2"
+          # Django 4.2 doesn't support Python 3.14
+          - python-version: "3.14"
+            django-version: "4.2"
+          # Django 5.0/5.1 don't support Python 3.14
+          - python-version: "3.14"
+            django-version: "5.0"
+          - python-version: "3.14"
+            django-version: "5.1"
 
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install Django~=${{ matrix.django-version }}.0
-          pip install -e ".[dev]"
-
-      - name: Run tests
-        run: pytest -v --cov=django_safe_migrations --cov-report=xml
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        if: matrix.python-version == '3.11' && matrix.django-version == '4.2'
-
-  test-postgres:
-    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:15
-        env:
-          POSTGRES_DB: test_db
-          POSTGRES_USER: test_user
-          POSTGRES_PASSWORD: test_password
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: |
-          pip install -e ".[dev,postgres]"
-
-      - name: Run PostgreSQL tests
-        env:
-          DJANGO_SETTINGS_MODULE: tests.settings.postgres
-          POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5432
-          POSTGRES_DB: test_db
-          POSTGRES_USER: test_user
-          POSTGRES_PASSWORD: test_password
-        run: pytest -v -m postgres
-
-  test-mysql:
-    runs-on: ubuntu-latest
-    services:
+        # ...
       mysql:
         image: mysql:8.0
-        env:
-          MYSQL_DATABASE: test_db
-          MYSQL_USER: test_user
-          MYSQL_PASSWORD: test_password
-          MYSQL_ROOT_PASSWORD: root_password
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+        # ...
 
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install dependencies
-        run: |
-          pip install -e ".[dev,mysql]"
-
-      - name: Run MySQL tests
-        env:
-          DJANGO_SETTINGS_MODULE: tests.settings.mysql
-          MYSQL_HOST: 127.0.0.1
-          MYSQL_PORT: 3306
-          MYSQL_DB: test_db
-          MYSQL_USER: test_user
-          MYSQL_PASSWORD: test_password
-        run: pytest -v -m mysql
+      - uses: actions/checkout@v6
+      # Set up Python, install deps, then run SQLite / PostgreSQL / MySQL test steps.
+      # Coverage is uploaded only on Python 3.12 + Django 4.2.
 ```
+
+See the actual `.github/workflows/ci.yml` in the repository for the full configuration.
 
 ### Self-Hosted Runners
 
@@ -752,19 +672,20 @@ ______________________________________________________________________
 
 ```
 tests/
-├── conftest.py              # Shared fixtures
-├── unit/                    # Unit tests
+├── conftest.py              # Shared fixtures + DB-vendor skip logic
+├── unit/                    # Unit tests (DB-specific tests gated by markers)
 │   ├── rules/
 │   │   ├── test_add_field_rules.py
 │   │   ├── test_add_index_rules.py
 │   │   └── test_remove_field_rules.py
 │   ├── test_analyzer.py
 │   └── test_reporters.py
-├── integration/             # Integration tests
+├── integration/             # Integration tests (DB-specific tests gated by markers)
 │   └── test_command.py
-├── database/                # Database-specific tests
-│   ├── test_postgres.py
-│   └── test_mysql.py
+├── settings/                # Per-database test settings
+│   ├── sqlite.py
+│   ├── postgres.py
+│   └── mysql.py
 └── test_project/            # Test Django project
     ├── manage.py
     ├── settings.py
@@ -869,7 +790,7 @@ ______________________________________________________________________
 
 ### Getting Help
 
-- Open an issue: https://github.com/username/django-safe-migrations/issues
+- Open an issue: https://github.com/YasserShkeir/django-safe-migrations/issues
 - Check existing discussions
 - Review CI logs for detailed error messages
 

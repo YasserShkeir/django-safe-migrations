@@ -10,15 +10,16 @@ Django Safe Migrations supports a wide range of Django and Python versions. This
 | ------ | ---------- | ---------- | ---------- | ---------- | ---------- |
 | 3.9    | Yes        | Yes        | No         | No         | No         |
 | 3.10   | Yes        | Yes        | Yes        | Yes        | No         |
-| 3.11   | Yes        | Yes        | Yes        | Yes        | Yes        |
-| 3.12   | Yes        | Yes        | Yes        | Yes        | Yes        |
+| 3.11   | Yes        | Yes        | Yes        | Yes        | No         |
+| 3.12   | No         | Yes        | Yes        | Yes        | Yes        |
 | 3.13   | No         | Yes        | Yes        | Yes        | Yes        |
+| 3.14   | No         | No         | No         | No         | Yes        |
 
 **Notes:**
 
 - Django 3.2 is the minimum supported version (LTS)
 - Django 5.0+ requires Python 3.10+
-- Django 6.0+ requires Python 3.11+
+- Django 6.0+ requires Python 3.12+
 - Python 3.9 support will be dropped when Django 3.2 reaches end-of-life
 
 ### Official Support Policy
@@ -42,7 +43,7 @@ Django's internal APIs change between versions. We handle these automatically so
 | < 5.1          | `check=`       | Required             |
 | 5.1            | `check=`       | Deprecated (warning) |
 | 5.1            | `condition=`   | New, preferred       |
-| 6.0+           | `check=`       | Removed              |
+| 6.0+           | `check=`       | Removed (planned)    |
 | 6.0+           | `condition=`   | Required             |
 
 **How We Handle It:**
@@ -96,8 +97,9 @@ Every pull request runs tests against our full version matrix using GitHub Actio
 
 ```yaml
 strategy:
+  fail-fast: false
   matrix:
-    python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
     django-version: ["3.2", "4.2", "5.0", "5.1", "6.0"]
     exclude:
       # Django 5.0+ requires Python 3.10+
@@ -105,14 +107,28 @@ strategy:
         django-version: "5.0"
       - python-version: "3.9"
         django-version: "5.1"
+      # Django 6.0 requires Python 3.12+
       - python-version: "3.9"
         django-version: "6.0"
-      # Django 6.0 requires Python 3.11+
       - python-version: "3.10"
         django-version: "6.0"
-      # Python 3.13 not supported on Django 3.2
+      - python-version: "3.11"
+        django-version: "6.0"
+      # Django 3.2 doesn't support Python 3.12+
+      - python-version: "3.12"
+        django-version: "3.2"
       - python-version: "3.13"
         django-version: "3.2"
+      - python-version: "3.14"
+        django-version: "3.2"
+      # Django 4.2 doesn't support Python 3.14
+      - python-version: "3.14"
+        django-version: "4.2"
+      # Django 5.0/5.1 don't support Python 3.14
+      - python-version: "3.14"
+        django-version: "5.0"
+      - python-version: "3.14"
+        django-version: "5.1"
 ```
 
 ### Docker Multi-Database Testing
@@ -220,10 +236,20 @@ While django-safe-migrations performs static analysis (no database connection re
 
 | Rule       | PostgreSQL | MySQL | SQLite | Other |
 | ---------- | ---------- | ----- | ------ | ----- |
+| SM005      | Yes        | No    | No     | No    |
 | SM010      | Yes        | No    | No     | No    |
 | SM011      | Yes        | No    | No     | No    |
 | SM012      | Yes        | No    | No     | No    |
+| SM013      | Yes        | No    | No     | No    |
+| SM017      | Yes        | No    | No     | No    |
+| SM018      | Yes        | No    | No     | No    |
+| SM021      | Yes        | No    | No     | No    |
+| SM030      | Yes        | No    | No     | No    |
+| SM031      | Yes        | No    | No     | No    |
+| SM034      | Yes        | No    | No     | No    |
 | All others | Yes        | Yes   | Yes    | Yes   |
+
+SM031 and SM034 are informational PostgreSQL-only rules; SM034 only fires on Django < 4.0.
 
 Database-specific rules use the `db_vendors` attribute:
 

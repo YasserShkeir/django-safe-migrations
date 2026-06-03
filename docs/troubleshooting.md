@@ -90,6 +90,7 @@ WARNING: Unknown category 'destrutive' in DISABLED_CATEGORIES. Did you mean 'des
 - `locking`, `data-loss`, `reversibility`, `data-migrations`
 - `high-risk`, `informational`, `naming`, `schema-changes`
 - `relations`, `security`, `performance`
+- `mysql`, `sqlite` (currently empty placeholders, but valid names)
 
 ### Rules Not Being Detected
 
@@ -175,7 +176,7 @@ python manage.py check_migrations myapp --format=json
 
 ```bash
 # Using Docker
-docker-compose -f docker-compose.test.yml up test-py313
+docker compose -f docker-compose.test.yml up test-py313
 ```
 
 ### MySQL Compatibility

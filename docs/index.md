@@ -18,11 +18,11 @@ $ python manage.py check_migrations
 
 Found 1 migration issue(s):
 
-✖ ERROR [SM001] myapp/migrations/0002_add_email.py:15
+ERROR [SM001] myapp/migrations/0002_add_email.py:15
    Adding NOT NULL field 'email' to 'user' without a default value will lock the table
    Operation: AddField(user.email)
 
-   💡 Suggestion:
+   Suggestion:
       1. Add field as nullable first
       2. Backfill existing rows
       3. Add NOT NULL constraint in separate migration
@@ -38,15 +38,15 @@ Found 1 migration issue(s):
 
 ## Features
 
-- 🔍 **36 built-in rules** covering schema changes, locking, data loss, and best practices
-- 🐘 **PostgreSQL-aware** rules for concurrent indexes, TEXT vs VARCHAR, IDENTITY columns
-- 💡 **Fix suggestions** with safe migration patterns for every issue
-- 🔧 **CI/CD ready** — GitHub Actions, GitLab Code Quality, JSON, SARIF output
-- ⚡ **Fast** — static analysis without running migrations
-- 📊 **Baseline support** — suppress existing issues, catch only new ones
-- 🔀 **Diff mode** — only check migrations changed since a branch
-- 🖥️ **Interactive mode** — review and triage issues one-by-one
-- 👀 **Watch mode** — re-run on file changes during development
+- **36 built-in rules** covering schema changes, locking, data loss, and best practices
+- **Database-aware** rules, including PostgreSQL-specific checks for concurrent indexes, TEXT vs VARCHAR, and IDENTITY columns, plus MySQL- and SQLite-specific categories
+- **Fix suggestions** with safe migration patterns for every issue
+- **CI/CD ready** — GitHub Actions, GitLab Code Quality, JSON, SARIF output
+- **Fast** — static analysis without running migrations
+- **Baseline support** — suppress existing issues, catch only new ones
+- **Diff mode** — only check migrations changed since a branch
+- **Interactive mode** — review and triage issues one-by-one
+- **Watch mode** — re-run on file changes during development
 
 ## Getting Started
 

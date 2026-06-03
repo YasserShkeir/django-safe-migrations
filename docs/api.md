@@ -287,7 +287,7 @@ analyzer = MigrationAnalyzer(rules=rules)
 
 ## Module Exports
 
-The main module exports these public classes:
+The main module exports these public names:
 
 ```python
 from django_safe_migrations import (

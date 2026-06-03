@@ -500,14 +500,19 @@ Output:
       "severity": "error",
       "operation": "AddField(user.email)",
       "message": "Adding NOT NULL field 'email' without default",
+      "suggestion": "Add a default value or make the field nullable",
       "file_path": "myapp/migrations/0002_add_email.py",
-      "line_number": 15
+      "line_number": 15,
+      "app_label": "myapp",
+      "migration_name": "0002_add_email"
     }
   ],
   "summary": {
     "errors": 1,
     "warnings": 1,
-    "by_rule": { "SM001": 1, "SM002": 1 }
+    "info": 0,
+    "by_rule": { "SM001": 1, "SM002": 1 },
+    "by_app": { "myapp": 2 }
   }
 }
 ```

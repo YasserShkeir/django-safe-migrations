@@ -33,7 +33,7 @@ Django Safe Migrations analyzes your Django migrations and warns you about opera
 | SM002   | `drop_column_unsafe`               | WARNING  | Dropping column while old code may reference it             |
 | SM003   | `drop_table_unsafe`                | WARNING  | Dropping table while old code may reference it              |
 | SM004   | `alter_column_type`                | WARNING  | Changing column type may rewrite table                      |
-| SM005   | `add_foreign_key_validates`        | WARNING  | FK constraint validates existing rows (locks)               |
+| SM005   | `add_foreign_key_validates`        | WARNING  | FK constraint validates existing rows (locks) (PostgreSQL)  |
 | SM006   | `rename_column`                    | INFO     | Column rename may break old code during deployment          |
 | SM007   | `run_sql_unsafe`                   | WARNING  | RunSQL without reverse_sql is not reversible                |
 | SM008   | `large_data_migration`             | INFO     | Data migration may be slow on large tables                  |
@@ -41,11 +41,11 @@ Django Safe Migrations analyzes your Django migrations and warns you about opera
 | SM010   | `index_not_concurrent`             | ERROR    | Index creation without CONCURRENTLY (PostgreSQL)            |
 | SM011   | `unique_constraint_not_concurrent` | ERROR    | Unique constraint without concurrent index                  |
 | SM012   | `enum_add_value_transaction`       | ERROR    | Adding enum value inside transaction (PostgreSQL)           |
-| SM013   | `alter_varchar_length`             | WARNING  | Decreasing VARCHAR length rewrites table                    |
+| SM013   | `alter_varchar_length`             | WARNING  | Decreasing VARCHAR length rewrites table (PostgreSQL)       |
 | SM014   | `rename_model`                     | WARNING  | Model rename may break FKs and external references          |
 | SM015   | `alter_unique_together`            | WARNING  | Deprecated in favor of UniqueConstraint                     |
 | SM016   | `run_python_no_reverse`            | INFO     | RunPython without reverse_code is not reversible            |
-| SM017   | `add_check_constraint`             | WARNING  | Check constraint validates all existing rows                |
+| SM017   | `add_check_constraint`             | WARNING  | Check constraint validates all existing rows (PostgreSQL)   |
 | SM018   | `concurrent_in_atomic_migration`   | ERROR    | Concurrent index operations require atomic=False            |
 | SM019   | `reserved_keyword_column`          | INFO     | Column name is a reserved SQL keyword                       |
 | SM020   | `alter_field_null_false`           | ERROR    | AlterField null=False without data backfill                 |
@@ -130,11 +130,11 @@ python manage.py check_migrations --watch
 ```
 Found 2 migration issue(s):
 
-✖ ERROR [SM001] myapp/migrations/0002_add_email.py:15
+ERROR [SM001] myapp/migrations/0002_add_email.py:15
    Adding NOT NULL field 'email' to 'user' without a default value will lock the table
    Operation: AddField(user.email)
 
-   💡 Suggestion:
+   Suggestion:
       Safe pattern for adding NOT NULL field:
 
       1. Migration 1 - Add field as nullable:
@@ -153,7 +153,7 @@ Found 2 migration issue(s):
              field=models.CharField(max_length=255, null=False),
          )
 
-⚠ WARNING [SM002] myapp/migrations/0003_remove_old.py:10
+WARNING [SM002] myapp/migrations/0003_remove_old.py:10
    Dropping column 'old_field' from 'user' - ensure all code references have been removed first
    Operation: RemoveField(user.old_field)
 
@@ -161,7 +161,7 @@ Found 2 migration issue(s):
 Summary: 1 error(s), 1 warning(s)
 ```
 
-## 🔄 CI/CD Integration
+## CI/CD Integration
 
 ### GitHub Actions
 
@@ -205,7 +205,7 @@ repos:
         pass_filenames: false
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 ### Command Options
 
@@ -248,11 +248,11 @@ for issue in issues:
         print(f"Suggestion: {issue.suggestion}")
 ```
 
-## 📚 Safe Migration Patterns
+## Safe Migration Patterns
 
 ### Adding a NOT NULL Column
 
-❌ **Unsafe:**
+**Unsafe:**
 
 ```python
 migrations.AddField(
@@ -262,7 +262,7 @@ migrations.AddField(
 )
 ```
 
-✅ **Safe:**
+**Safe:**
 
 ```python
 # Migration 1: Add nullable field
@@ -289,7 +289,7 @@ migrations.AlterField(
 
 ### Creating an Index (PostgreSQL)
 
-❌ **Unsafe:**
+**Unsafe:**
 
 ```python
 migrations.AddIndex(
@@ -298,7 +298,7 @@ migrations.AddIndex(
 )
 ```
 
-✅ **Safe:**
+**Safe:**
 
 ```python
 from django.contrib.postgres.operations import AddIndexConcurrently
@@ -314,7 +314,7 @@ class Migration(migrations.Migration):
     ]
 ```
 
-## ⚠️ Known Limitations
+## Known Limitations
 
 ### Static Analysis Only
 
@@ -330,16 +330,19 @@ Django Safe Migrations performs **static analysis** of migration files. It canno
 
 Some rules only apply to PostgreSQL:
 
-| Rule  | PostgreSQL Only | Reason                                              |
-| ----- | --------------- | --------------------------------------------------- |
-| SM010 | Yes             | `CONCURRENTLY` is PostgreSQL-specific               |
-| SM011 | Yes             | Concurrent unique indexes are PostgreSQL-specific   |
-| SM012 | Yes             | Enum handling is PostgreSQL-specific                |
-| SM018 | Yes             | `AddIndexConcurrently` is PostgreSQL-specific       |
-| SM021 | Yes             | Concurrent unique constraint pattern                |
-| SM030 | Yes             | `RemoveIndexConcurrently` is PostgreSQL-specific    |
-| SM031 | Yes             | TEXT vs VARCHAR optimization is PostgreSQL-specific |
-| SM034 | Yes             | IDENTITY columns are PostgreSQL-specific            |
+| Rule  | PostgreSQL Only | Reason                                                     |
+| ----- | --------------- | ---------------------------------------------------------- |
+| SM005 | Yes             | FK constraint validation is PostgreSQL-specific            |
+| SM010 | Yes             | `CONCURRENTLY` is PostgreSQL-specific                      |
+| SM011 | Yes             | Concurrent unique indexes are PostgreSQL-specific          |
+| SM012 | Yes             | Enum handling is PostgreSQL-specific                       |
+| SM013 | Yes             | VARCHAR length / ALTER TYPE rewrite is PostgreSQL-specific |
+| SM017 | Yes             | CHECK constraint validation is PostgreSQL-specific         |
+| SM018 | Yes             | `AddIndexConcurrently` is PostgreSQL-specific              |
+| SM021 | Yes             | Concurrent unique constraint pattern                       |
+| SM030 | Yes             | `RemoveIndexConcurrently` is PostgreSQL-specific           |
+| SM031 | Yes             | TEXT vs VARCHAR optimization is PostgreSQL-specific        |
+| SM034 | Yes             | IDENTITY columns are PostgreSQL-specific                   |
 
 For MySQL, SQLite, or other databases, these rules are automatically skipped.
 
@@ -375,7 +378,7 @@ Rules that inspect Python source code (like SM026 for RunPython batching) may no
 - Some Docker configurations
 - When source files are not available
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details.
 
@@ -395,17 +398,17 @@ pytest
 make lint
 ```
 
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## 💖 Support
+## Support
 
 If this project helps you ship safer migrations, consider supporting its development:
 
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-red.svg)](https://www.yasser-shkeir.com/donate)
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 Inspired by:
 

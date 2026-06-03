@@ -87,13 +87,13 @@ The SARIF output includes:
     "tool": {
       "driver": {
         "name": "django-safe-migrations",
-        "version": "0.2.0",
+        "version": "0.6.1",
         "rules": [
           {
             "id": "SM001",
             "name": "NotNullWithoutDefaultRule",
             "shortDescription": { "text": "Adding NOT NULL column without default" },
-            "helpUri": "https://django-safe-migrations.readthedocs.io/en/latest/rules/SM001/"
+            "helpUri": "https://github.com/YasserShkeir/django-safe-migrations/blob/main/docs/rules.md"
           }
         ]
       }
@@ -119,9 +119,9 @@ The SARIF output includes:
 
 | django-safe-migrations | SARIF Level | GitHub Display |
 | ---------------------- | ----------- | -------------- |
-| ERROR                  | `error`     | 🔴 Error       |
-| WARNING                | `warning`   | 🟡 Warning     |
-| INFO                   | `note`      | 🔵 Note        |
+| ERROR                  | `error`     | Error          |
+| WARNING                | `warning`   | Warning        |
+| INFO                   | `note`      | Note           |
 
 ## Command Options
 

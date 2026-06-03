@@ -23,7 +23,7 @@ ______________________________________________________________________
 Adding a `NOT NULL` column without a default value:
 
 ```python
-# ❌ UNSAFE
+# UNSAFE
 migrations.AddField(
     model_name='user',
     name='email',
@@ -44,7 +44,7 @@ For large tables, this can take **minutes to hours**.
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Three-step process
+# SAFE: Three-step process
 
 # Migration 1: Add nullable column
 migrations.AddField(
@@ -85,7 +85,7 @@ ______________________________________________________________________
 Dropping a column that may still be referenced by running code:
 
 ```python
-# ⚠️ WARNING
+# WARNING
 migrations.RemoveField(
     model_name='user',
     name='legacy_field',
@@ -121,7 +121,7 @@ ______________________________________________________________________
 Dropping a table (model) that may still be referenced:
 
 ```python
-# ⚠️ WARNING
+# WARNING
 migrations.DeleteModel(name='LegacyModel')
 ```
 
@@ -152,7 +152,7 @@ ______________________________________________________________________
 Creating an index without using `CONCURRENTLY`:
 
 ```python
-# ❌ UNSAFE on PostgreSQL
+# UNSAFE on PostgreSQL
 migrations.AddIndex(
     model_name='user',
     index=models.Index(fields=['email'], name='user_email_idx'),
@@ -171,7 +171,7 @@ For large tables, this can take **minutes to hours** of write downtime.
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Use concurrent index
+# SAFE: Use concurrent index
 from django.contrib.postgres.operations import AddIndexConcurrently
 
 class Migration(migrations.Migration):
@@ -202,7 +202,7 @@ ______________________________________________________________________
 Adding a unique constraint without using a concurrent index:
 
 ```python
-# ❌ UNSAFE on PostgreSQL
+# UNSAFE on PostgreSQL
 migrations.AddConstraint(
     model_name='user',
     constraint=models.UniqueConstraint(
@@ -222,7 +222,7 @@ PostgreSQL implements unique constraints using indexes. Adding one:
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Two-step process
+# SAFE: Two-step process
 
 # Migration 1: Create unique index concurrently
 from django.contrib.postgres.operations import AddIndexConcurrently
@@ -264,7 +264,7 @@ ______________________________________________________________________
 Changing a column's type via AlterField:
 
 ```python
-# ⚠️ WARNING
+# WARNING
 migrations.AlterField(
     model_name='product',
     name='price',
@@ -285,7 +285,7 @@ Even seemingly safe changes (like `Integer` → `BigInteger`) can trigger full t
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Expand/Contract pattern
+# SAFE: Expand/Contract pattern
 
 # Migration 1: Add new column
 migrations.AddField(
@@ -314,14 +314,14 @@ ______________________________________________________________________
 
 **Severity:** WARNING
 
-**Databases:** All
+**Databases:** PostgreSQL
 
 ### What it detects
 
 Adding a ForeignKey that validates existing rows:
 
 ```python
-# ⚠️ WARNING
+# WARNING
 migrations.AddField(
     model_name='article',
     name='author',
@@ -343,7 +343,7 @@ Adding a FK constraint:
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Add FK without constraint validation
+# SAFE: Add FK without constraint validation
 
 # Migration 1: Add FK without database constraint
 migrations.AddField(
@@ -387,7 +387,7 @@ ______________________________________________________________________
 Renaming a column:
 
 ```python
-# ℹ️ INFO
+# INFO
 migrations.RenameField(
     model_name='user',
     old_name='username',
@@ -408,7 +408,7 @@ During a rolling deployment:
 For zero-downtime deployments:
 
 ```python
-# ✅ SAFE: Expand/Contract pattern
+# SAFE: Expand/Contract pattern
 
 # Migration 1: Add new column
 migrations.AddField(
@@ -441,7 +441,7 @@ ______________________________________________________________________
 RunSQL operations without reverse_sql:
 
 ```python
-# ⚠️ WARNING
+# WARNING
 migrations.RunSQL(
     sql='CREATE INDEX idx_user_email ON users (email)',
 )
@@ -458,7 +458,7 @@ Without `reverse_sql`:
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Always provide reverse_sql
+# SAFE: Always provide reverse_sql
 
 migrations.RunSQL(
     sql='CREATE INDEX idx_user_email ON users (email)',
@@ -485,7 +485,7 @@ ______________________________________________________________________
 RunPython data migrations:
 
 ```python
-# ℹ️ INFO
+# INFO
 def update_all_users(apps, schema_editor):
     User = apps.get_model('myapp', 'User')
     for user in User.objects.all():
@@ -507,7 +507,7 @@ Data migrations can be slow because:
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Batch processing with iterator
+# SAFE: Batch processing with iterator
 
 def update_all_users(apps, schema_editor):
     User = apps.get_model('myapp', 'User')
@@ -543,7 +543,7 @@ ______________________________________________________________________
 Adding a value to an enum type inside a transaction:
 
 ```python
-# ❌ UNSAFE on PostgreSQL
+# UNSAFE on PostgreSQL
 migrations.RunSQL(
     sql="ALTER TYPE status_enum ADD VALUE 'pending'",
 )
@@ -560,7 +560,7 @@ ERROR: ALTER TYPE ... ADD VALUE cannot run inside a transaction block
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Set atomic = False
+# SAFE: Set atomic = False
 
 class Migration(migrations.Migration):
     atomic = False  # Required for ALTER TYPE ADD VALUE
@@ -590,7 +590,7 @@ ______________________________________________________________________
 Decreasing the max_length of a CharField:
 
 ```python
-# ⚠️ WARNING - if max_length is being decreased
+# WARNING - if max_length is being decreased
 migrations.AlterField(
     model_name='user',
     name='username',
@@ -610,7 +610,7 @@ The database must verify all existing data fits within the new length.
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Use a CHECK constraint instead
+# SAFE: Use a CHECK constraint instead
 
 # Migration 1: Add CHECK constraint (doesn't rewrite table)
 migrations.RunSQL(
@@ -632,14 +632,14 @@ ______________________________________________________________________
 
 **Severity:** ERROR
 
-**Databases:** All (especially PostgreSQL)
+**Databases:** Non-PostgreSQL (on PostgreSQL, the more specific [SM011](#sm011-non-concurrent-unique-constraint) takes over)
 
 ### What it detects
 
 Adding a unique constraint to an existing table:
 
 ```python
-# ❌ UNSAFE
+# UNSAFE
 migrations.AddConstraint(
     model_name='user',
     constraint=models.UniqueConstraint(
@@ -661,7 +661,7 @@ For large tables, this can take minutes to hours.
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Create index concurrently first
+# SAFE: Create index concurrently first
 
 # Migration 1: Create unique index concurrently
 from django.contrib.postgres.operations import AddIndexConcurrently
@@ -702,7 +702,7 @@ ______________________________________________________________________
 Renaming a model (which renames the database table):
 
 ```python
-# ⚠️ WARNING
+# WARNING
 migrations.RenameModel(
     old_name='OldUser',
     new_name='NewUser',
@@ -721,7 +721,7 @@ Renaming a model can cause:
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Keep the old table name
+# SAFE: Keep the old table name
 
 class NewUser(models.Model):
     # ... fields ...
@@ -750,7 +750,7 @@ ______________________________________________________________________
 Using the deprecated `AlterUniqueTogether` operation:
 
 ```python
-# ⚠️ WARNING - deprecated
+# WARNING - deprecated
 migrations.AlterUniqueTogether(
     name='user',
     unique_together={('email', 'tenant_id')},
@@ -768,7 +768,7 @@ migrations.AlterUniqueTogether(
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Use UniqueConstraint instead
+# SAFE: Use UniqueConstraint instead
 migrations.AddConstraint(
     model_name='user',
     constraint=models.UniqueConstraint(
@@ -797,7 +797,7 @@ ______________________________________________________________________
 `RunPython` operations without a `reverse_code` function:
 
 ```python
-# ⚠️ INFO
+# INFO
 migrations.RunPython(populate_defaults)  # No reverse_code
 ```
 
@@ -812,7 +812,7 @@ Without `reverse_code`, the migration cannot be rolled back. If something goes w
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Always provide reverse_code
+# SAFE: Always provide reverse_code
 
 def populate_defaults(apps, schema_editor):
     Model = apps.get_model('app', 'Model')
@@ -847,7 +847,7 @@ ______________________________________________________________________
 Adding a check constraint to an existing table:
 
 ```python
-# ⚠️ WARNING
+# WARNING
 migrations.AddConstraint(
     model_name='order',
     constraint=models.CheckConstraint(
@@ -868,7 +868,7 @@ Adding a check constraint requires PostgreSQL to validate ALL existing rows agai
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Add as NOT VALID first, then validate
+# SAFE: Add as NOT VALID first, then validate
 
 # Migration 1: Add constraint as NOT VALID
 migrations.RunSQL(
@@ -908,7 +908,7 @@ Using `AddIndexConcurrently` or `RemoveIndexConcurrently` in a migration without
 `atomic = False`:
 
 ```python
-# ⚠️ ERROR
+# ERROR
 class Migration(migrations.Migration):
     # Missing atomic = False!
     operations = [
@@ -931,7 +931,7 @@ CREATE INDEX CONCURRENTLY cannot run inside a transaction block
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Set atomic = False
+# SAFE: Set atomic = False
 class Migration(migrations.Migration):
     atomic = False
 
@@ -956,7 +956,7 @@ ______________________________________________________________________
 Using SQL reserved keywords as column names:
 
 ```python
-# ⚠️ INFO
+# INFO
 migrations.AddField(
     model_name='product',
     name='order',  # 'order' is a SQL keyword
@@ -979,7 +979,7 @@ Common problematic names: `order`, `user`, `group`, `select`, `table`, `index`,
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Use descriptive, non-reserved names
+# SAFE: Use descriptive, non-reserved names
 migrations.AddField(
     model_name='product',
     name='sort_order',  # Descriptive and not reserved
@@ -1001,7 +1001,7 @@ Changing a field from `null=True` to `null=False` without ensuring existing NULL
 values are handled:
 
 ```python
-# ⚠️ ERROR
+# ERROR
 migrations.AlterField(
     model_name='user',
     name='email',
@@ -1024,7 +1024,7 @@ rows.
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Backfill NULLs first, then alter
+# SAFE: Backfill NULLs first, then alter
 
 # Migration 1: Backfill NULL values
 def backfill_emails(apps, schema_editor):
@@ -1047,14 +1047,14 @@ ______________________________________________________________________
 
 **Severity:** ERROR
 
-**Databases:** All
+**Databases:** PostgreSQL
 
 ### What it detects
 
 Adding a UNIQUE constraint via `AlterField`:
 
 ```python
-# ⚠️ ERROR
+# ERROR
 migrations.AlterField(
     model_name='user',
     name='email',
@@ -1072,7 +1072,7 @@ migrations.AlterField(
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Use concurrent index (PostgreSQL)
+# SAFE: Use concurrent index (PostgreSQL)
 
 # Migration 1: Create unique index concurrently
 class Migration(migrations.Migration):
@@ -1112,7 +1112,7 @@ ______________________________________________________________________
 Using potentially expensive callables as field defaults:
 
 ```python
-# ⚠️ WARNING
+# WARNING
 migrations.AddField(
     model_name='event',
     name='created_at',
@@ -1132,7 +1132,7 @@ When adding a column with a default, some databases:
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Use database-level defaults or backfill
+# SAFE: Use database-level defaults or backfill
 
 # Option 1: Use auto_now_add (handled at ORM level)
 field=models.DateTimeField(auto_now_add=True, null=True)
@@ -1167,7 +1167,7 @@ ______________________________________________________________________
 Adding a ManyToMany field:
 
 ```python
-# ⚠️ INFO
+# INFO
 migrations.AddField(
     model_name='article',
     name='tags',
@@ -1190,7 +1190,7 @@ implications.
 ### Best practices
 
 ```python
-# ✅ Consider: Add the field, but populate data carefully
+# Consider: Add the field, but populate data carefully
 
 # The migration (safe):
 migrations.AddField(
@@ -1226,7 +1226,7 @@ ______________________________________________________________________
 Potential SQL injection patterns in `RunSQL` operations:
 
 ```python
-# ⚠️ ERROR
+# ERROR
 table_name = "users"  # Could come from untrusted source
 migrations.RunSQL(
     sql=f"DROP TABLE {table_name}",  # String formatting = injection risk
@@ -1251,7 +1251,7 @@ in migrations can:
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Use hardcoded SQL or Django's schema editor
+# SAFE: Use hardcoded SQL or Django's schema editor
 
 # Option 1: Hardcoded SQL (when you control the values)
 migrations.RunSQL(
@@ -1280,7 +1280,7 @@ ______________________________________________________________________
 Adding a ForeignKey without `db_index=True` (or when `db_index=False`):
 
 ```python
-# ⚠️ WARNING
+# WARNING
 migrations.AddField(
     model_name='order',
     name='customer',
@@ -1307,7 +1307,7 @@ rule catches when you explicitly disable it.
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Keep the default index (or explicitly enable)
+# SAFE: Keep the default index (or explicitly enable)
 migrations.AddField(
     model_name='order',
     name='customer',
@@ -1332,7 +1332,7 @@ ______________________________________________________________________
 `RunPython` operations that use `.all()` without batching:
 
 ```python
-# ⚠️ WARNING
+# WARNING
 def migrate_data(apps, schema_editor):
     User = apps.get_model('myapp', 'User')
     for user in User.objects.all():  # Loads ALL users into memory!
@@ -1354,7 +1354,7 @@ Loading all rows into memory:
 ### Safe pattern
 
 ```python
-# ✅ SAFE: Use batching with iterator() or chunked updates
+# SAFE: Use batching with iterator() or chunked updates
 
 def migrate_data(apps, schema_editor):
     User = apps.get_model('myapp', 'User')
@@ -1414,7 +1414,7 @@ branches.
 ### Safe pattern
 
 ```bash
-# ✅ SAFE: Create a merge migration
+# SAFE: Create a merge migration
 python manage.py makemigrations --merge myapp
 ```
 
@@ -1443,11 +1443,11 @@ ______________________________________________________________________
 
 ### What it detects
 
-`AddField` or `CreateModel` using `AutoField`, `SmallAutoField`, or `IntegerField` as a primary key. These 32-bit integer types max out at ~2.1 billion rows.
+`AddField` or `CreateModel` using `AutoField` or `SmallAutoField` as a primary key. These 32-bit integer types max out at ~2.1 billion rows.
 
 ### Why it's dangerous
 
-Once a 32-bit primary key overflows, inserts fail with `IntegerError`. Migrating a large table from `AutoField` to `BigAutoField` requires a full table rewrite with an ACCESS EXCLUSIVE lock.
+Once a 32-bit primary key overflows, inserts fail with an "integer out of range" error (`DataError`). Migrating a large table from `AutoField` to `BigAutoField` requires a full table rewrite with an ACCESS EXCLUSIVE lock.
 
 ### Safe pattern
 
