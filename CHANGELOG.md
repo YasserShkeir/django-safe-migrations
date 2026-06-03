@@ -20,6 +20,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SM024**: the fix suggestion no longer recommends `migrations.RunSQL(...,
   params=...)`, which raises `TypeError` because `RunSQL` has no `params`
   argument; it now points to `RunPython` with a parameterized cursor.
+- **SARIF reporter**: emit forward-slashed, repository-root-relative artifact
+  URIs and drop the undeclared `%SRCROOT%` `uriBaseId`, which is invalid SARIF
+  that GitHub Code Scanning rejects.
+- **GitHub reporter**: escape `:` and `,` (in addition to `%`/`\r`/`\n`) in the
+  `file=` and `title=` annotation properties, so paths/titles containing those
+  characters (e.g. a Windows drive path) no longer corrupt the workflow command.
+- **GitLab reporter**: include the line number and message in the Code Quality
+  fingerprint so two distinct findings on the same operation are no longer
+  given identical fingerprints (which made GitLab drop one).
 
 ### Changed
 
@@ -28,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rule's stated intent.
 - Add `SM017` to the `postgresql` rule category (it is PostgreSQL-only via
   `db_vendors` but was missing from the category map).
+- **Release pipeline**: the PyPI publish workflow now runs the test suite and
+  verifies the git tag matches `__version__` before publishing, and runs
+  `twine check` on the built artifacts. A tag no longer publishes to PyPI when
+  tests fail or the version is mismatched.
 
 ## [0.6.1] - 2026-06-03
 

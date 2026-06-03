@@ -67,10 +67,13 @@ class GitLabReporter(BaseReporter):
         Returns:
             A dictionary in GitLab Code Quality format.
         """
-        # Build a stable fingerprint from the issue identity
+        # Build a stable fingerprint from the issue identity. Include the
+        # line number and message so that two distinct findings on the same
+        # operation (same rule/app/migration/operation) do not collide and
+        # get silently deduplicated by GitLab.
         fingerprint_source = (
-            f"{issue.rule_id}:{issue.app_label}:"
-            f"{issue.migration_name}:{issue.operation}"
+            f"{issue.rule_id}:{issue.app_label}:{issue.migration_name}:"
+            f"{issue.operation}:{issue.line_number}:{issue.message}"
         )
         fingerprint = hashlib.md5(  # noqa: S324  # nosec B324
             fingerprint_source.encode()
