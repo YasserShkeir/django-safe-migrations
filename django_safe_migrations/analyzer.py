@@ -105,6 +105,7 @@ class MigrationAnalyzer:
         migration: Migration,
         app_label: Optional[str] = None,
         migration_name: Optional[str] = None,
+        loader: Optional[Any] = None,
     ) -> list[Issue]:
         """Analyze a single migration for issues.
 
@@ -112,6 +113,9 @@ class MigrationAnalyzer:
             migration: The Django migration to analyze.
             app_label: Optional app label override.
             migration_name: Optional migration name override.
+            loader: Optional pre-built ``MigrationLoader`` reused for old-field
+                    state resolution. Avoids rebuilding the loader (which reads
+                    every migration on disk) for each operation.
 
         Returns:
             A list of Issue objects found in the migration.
@@ -136,91 +140,41 @@ class MigrationAnalyzer:
         # Pre-parse suppression comments for efficiency
         suppressions = get_suppressions_for_migration(migration)
 
+        from django.db import migrations as mig_module
+
         for idx, operation in enumerate(operations):
             # Get operation line number for suppression checking
             operation_line = get_operation_line_number(migration, idx)
 
-            for rule in self.rules:
-                # Skip disabled rules (individual, category-based, or per-app)
-                if not self._is_rule_enabled(rule.rule_id, app_label):
-                    logger.debug(
-                        "Skipping rule %s: disabled for app %s",
-                        rule.rule_id,
-                        app_label,
-                    )
-                    continue
+            self._check_operation(
+                operation=operation,
+                operation_index=idx,
+                operation_line=operation_line,
+                migration=migration,
+                app_label=app_label,
+                migration_name=migration_name,
+                file_path=file_path,
+                suppressions=suppressions,
+                loader=loader,
+                issues=issues,
+            )
 
-                # Skip rules that don't apply to this database
-                if not rule.applies_to_db(self.db_vendor):
-                    logger.debug(
-                        "Skipping rule %s: does not apply to %s",
-                        rule.rule_id,
-                        self.db_vendor,
-                    )
-                    continue
-
-                # Check for inline suppression comments
-                if file_path and operation_line:
-                    if is_operation_suppressed(
-                        file_path, operation_line, rule.rule_id, suppressions
-                    ):
-                        logger.debug(
-                            "Skipping rule %s: suppressed at line %d",
-                            rule.rule_id,
-                            operation_line,
-                        )
-                        continue
-
-                # Resolve old field state for AlterField operations
-                rule_kwargs: dict[str, object] = {
-                    "db_vendor": self.db_vendor,
-                }
-                from django.db import migrations as mig_module
-
-                if (
-                    isinstance(operation, mig_module.AlterField)
-                    and app_label
-                    and migration_name
-                ):
-                    old_field = resolve_field_before_operation(
+            # Recurse into SeparateDatabaseAndState so unsafe database
+            # operations hidden inside the wrapper are still analyzed.
+            if isinstance(operation, mig_module.SeparateDatabaseAndState):
+                for db_op in operation.database_operations or []:
+                    self._check_operation(
+                        operation=db_op,
+                        operation_index=idx,
+                        operation_line=operation_line,
+                        migration=migration,
                         app_label=app_label,
                         migration_name=migration_name,
-                        operation_index=idx,
-                        model_name=operation.model_name,
-                        field_name=operation.name,
+                        file_path=file_path,
+                        suppressions=suppressions,
+                        loader=loader,
+                        issues=issues,
                     )
-                    rule_kwargs["old_field"] = old_field
-
-                issue = rule.check(
-                    operation=operation,
-                    migration=migration,
-                    **rule_kwargs,
-                )
-
-                if issue:
-                    # Apply severity override from settings (per-app or global)
-                    issue.severity = get_rule_severity_for_app(
-                        issue.rule_id, issue.severity, app_label
-                    )
-
-                    # Enrich issue with context
-                    if issue.file_path is None:
-                        issue.file_path = file_path
-                    if issue.line_number is None:
-                        issue.line_number = operation_line
-                    if issue.app_label is None:
-                        issue.app_label = app_label
-                    if issue.migration_name is None:
-                        issue.migration_name = migration_name
-
-                    logger.debug(
-                        "Found issue: %s in %s.%s at line %s",
-                        issue.rule_id,
-                        app_label,
-                        migration_name,
-                        operation_line,
-                    )
-                    issues.append(issue)
 
         logger.debug(
             "Migration %s.%s analysis complete: %d issues found",
@@ -230,11 +184,104 @@ class MigrationAnalyzer:
         )
         return issues
 
-    def analyze_app(self, app_label: str) -> list[Issue]:
+    def _check_operation(
+        self,
+        operation: Any,
+        operation_index: int,
+        operation_line: Optional[int],
+        migration: Migration,
+        app_label: Optional[str],
+        migration_name: Optional[str],
+        file_path: Optional[str],
+        suppressions: Any,
+        loader: Any,
+        issues: list[Issue],
+    ) -> None:
+        """Run all enabled rules against a single operation.
+
+        The old-field state for ``AlterField`` operations is resolved once
+        per operation (not once per rule), avoiding a redundant rebuild of
+        the migration state for every rule. Matching issues are appended to
+        ``issues`` in place.
+        """
+        from django.db import migrations as mig_module
+
+        # Resolve old field state once per operation (shared by all rules).
+        is_alter_field = (
+            isinstance(operation, mig_module.AlterField)
+            and bool(app_label)
+            and bool(migration_name)
+        )
+        old_field = None
+        if is_alter_field:
+            old_field = resolve_field_before_operation(
+                app_label=app_label,  # type: ignore[arg-type]
+                migration_name=migration_name,  # type: ignore[arg-type]
+                operation_index=operation_index,
+                model_name=operation.model_name,
+                field_name=operation.name,
+                loader=loader,
+            )
+
+        for rule in self.rules:
+            # Skip disabled rules (individual, category-based, or per-app)
+            if not self._is_rule_enabled(rule.rule_id, app_label):
+                continue
+
+            # Skip rules that don't apply to this database
+            if not rule.applies_to_db(self.db_vendor):
+                continue
+
+            # Check for inline suppression comments
+            if file_path and operation_line:
+                if is_operation_suppressed(
+                    file_path, operation_line, rule.rule_id, suppressions
+                ):
+                    continue
+
+            rule_kwargs: dict[str, object] = {"db_vendor": self.db_vendor}
+            if is_alter_field:
+                rule_kwargs["old_field"] = old_field
+
+            issue = rule.check(
+                operation=operation,
+                migration=migration,
+                **rule_kwargs,
+            )
+            if not issue:
+                continue
+
+            # Apply severity override from settings (per-app or global)
+            issue.severity = get_rule_severity_for_app(
+                issue.rule_id, issue.severity, app_label
+            )
+
+            # Enrich issue with context
+            if issue.file_path is None:
+                issue.file_path = file_path
+            if issue.line_number is None:
+                issue.line_number = operation_line
+            if issue.app_label is None:
+                issue.app_label = app_label
+            if issue.migration_name is None:
+                issue.migration_name = migration_name
+
+            logger.debug(
+                "Found issue: %s in %s.%s at line %s",
+                issue.rule_id,
+                app_label,
+                migration_name,
+                operation_line,
+            )
+            issues.append(issue)
+
+    def analyze_app(self, app_label: str, loader: Any = None) -> list[Issue]:
         """Analyze all migrations for a Django app.
 
         Args:
             app_label: The app label (e.g., 'myapp').
+            loader: Optional pre-built ``MigrationLoader`` to reuse instead of
+                    constructing a new one (which re-reads every migration).
 
         Returns:
             A list of Issue objects found in the app's migrations.
@@ -242,7 +289,8 @@ class MigrationAnalyzer:
         from django.db.migrations.loader import MigrationLoader
 
         issues: list[Issue] = []
-        loader = MigrationLoader(None, ignore_no_migrations=True)
+        if loader is None:
+            loader = MigrationLoader(None, ignore_no_migrations=True)
 
         # Get all migrations for this app from disk_migrations.
         # Use disk_migrations values directly instead of get_migration()
@@ -269,6 +317,7 @@ class MigrationAnalyzer:
                     migration=migration,
                     app_label=app_label,
                     migration_name=name,
+                    loader=loader,
                 )
             )
 
@@ -317,7 +366,7 @@ class MigrationAnalyzer:
             if app_label in exclude_apps:
                 logger.debug("Skipping excluded app: %s", app_label)
                 continue
-            issues.extend(self.analyze_app(app_label))
+            issues.extend(self.analyze_app(app_label, loader=loader))
 
         logger.info("Analysis complete: %d total issues found", len(issues))
         if self.verbose:
@@ -327,6 +376,7 @@ class MigrationAnalyzer:
     def analyze_new_migrations(
         self,
         app_label: Optional[str] = None,
+        exclude_apps: Optional[list[str]] = None,
     ) -> list[Issue]:
         """Analyze only unapplied (new) migrations.
 
@@ -335,6 +385,9 @@ class MigrationAnalyzer:
 
         Args:
             app_label: Optional app label to filter by.
+            exclude_apps: List of app labels to exclude (e.g., Django's
+                          built-in apps). If None, uses
+                          SAFE_MIGRATIONS["EXCLUDED_APPS"] from settings.
 
         Returns:
             A list of Issue objects found in unapplied migrations.
@@ -342,6 +395,9 @@ class MigrationAnalyzer:
         from django.db import connection
         from django.db.migrations.loader import MigrationLoader
         from django.db.migrations.recorder import MigrationRecorder
+
+        if exclude_apps is None:
+            exclude_apps = get_excluded_apps()
 
         issues: list[Issue] = []
         loader = MigrationLoader(connection)
@@ -351,6 +407,10 @@ class MigrationAnalyzer:
         unapplied_count = 0
         for key in loader.disk_migrations.keys():
             app, name = key
+            # Skip excluded apps (Django built-ins, user-configured)
+            if app in exclude_apps:
+                continue
+
             # Skip if already applied
             if (app, name) in applied:
                 continue
@@ -368,6 +428,7 @@ class MigrationAnalyzer:
                     migration=migration,
                     app_label=app,
                     migration_name=name,
+                    loader=loader,
                 )
             )
 

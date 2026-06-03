@@ -219,6 +219,65 @@ class TestCommandOptions:
         # Safe app should pass without --fail-on-warning
         assert exit_code == 0
 
+    @override_settings(SAFE_MIGRATIONS={"FAIL_ON_WARNING": True})
+    def test_fail_on_warning_setting_exits_1(self):
+        """Settings-level FAIL_ON_WARNING (no CLI flag) causes exit 1 on warnings."""
+        from unittest.mock import patch
+
+        from django_safe_migrations.rules.base import Issue, Severity
+
+        warning = Issue(
+            rule_id="SM999",
+            severity=Severity.WARNING,
+            operation="op",
+            message="a warning",
+        )
+        out = StringIO()
+        with patch(
+            "django_safe_migrations.analyzer.MigrationAnalyzer.analyze_all",
+            return_value=[warning],
+        ):
+            with pytest.raises(SystemExit) as exc:
+                call_command("check_migrations", stdout=out)
+        assert exc.value.code == 1
+
+    def test_warning_only_exits_0_without_fail_on_warning(self):
+        """Warnings alone do not fail when neither flag nor setting is set."""
+        from unittest.mock import patch
+
+        from django_safe_migrations.rules.base import Issue, Severity
+
+        warning = Issue(
+            rule_id="SM999",
+            severity=Severity.WARNING,
+            operation="op",
+            message="a warning",
+        )
+        out = StringIO()
+        with patch(
+            "django_safe_migrations.analyzer.MigrationAnalyzer.analyze_all",
+            return_value=[warning],
+        ):
+            try:
+                call_command("check_migrations", stdout=out)
+                exit_code = 0
+            except SystemExit as e:
+                exit_code = e.code
+        assert exit_code == 0
+
+    def test_diff_skips_unresolvable_migration(self):
+        """--diff warns and continues on a file that resolves to no migration."""
+        from unittest.mock import patch
+
+        out, err = StringIO(), StringIO()
+        with patch(
+            "django_safe_migrations.diff.get_changed_apps_and_migrations",
+            return_value=[("nonexistent_app", "0001_bogus")],
+        ):
+            # Must NOT raise CommandError; with no resolvable issues it exits 0.
+            call_command("check_migrations", diff="main", stdout=out, stderr=err)
+        assert "Skipping" in err.getvalue()
+
     def test_exclude_apps_removes_detection(self):
         """Test --exclude-apps properly excludes apps from analysis."""
         out = StringIO()

@@ -9,7 +9,11 @@ from typing import IO, Any
 from django.core.management.base import BaseCommand, CommandParser
 
 from django_safe_migrations.analyzer import MigrationAnalyzer
-from django_safe_migrations.conf import get_category_for_rule, log_config_warnings
+from django_safe_migrations.conf import (
+    get_category_for_rule,
+    get_fail_on_warning,
+    log_config_warnings,
+)
 from django_safe_migrations.reporters import get_reporter
 from django_safe_migrations.rules import ALL_RULES, _load_extra_rules
 from django_safe_migrations.rules.base import Issue, Severity
@@ -226,7 +230,8 @@ class Command(BaseCommand):
 
         app_labels = options["app_labels"]
         output_file = options["output"]
-        fail_on_warning = options["fail_on_warning"]
+        # CLI flag OR the settings-level FAIL_ON_WARNING setting
+        fail_on_warning = options["fail_on_warning"] or get_fail_on_warning()
         new_only = options["new_only"]
         show_suggestions = not options["no_suggestions"]
         cli_exclude_apps = options["exclude_apps"]
@@ -258,6 +263,8 @@ class Command(BaseCommand):
 
         diff_ref = options.get("diff")
         if diff_ref is not None:
+            from django.core.management.base import CommandError
+
             from django_safe_migrations.diff import (
                 DiffError,
                 get_changed_apps_and_migrations,
@@ -274,21 +281,39 @@ class Command(BaseCommand):
                     f"Diff mode: checking {len(changed)} changed migration(s)"
                 )
             for app_label, migration_name in changed:
-                if app_label not in exclude_apps:
-                    app_issues = analyzer.analyze_migration(
-                        migration=self._load_migration(
-                            analyzer, app_label, migration_name
-                        ),
+                if app_label in exclude_apps:
+                    continue
+                # A changed file may not resolve to a known migration (e.g.
+                # an app whose label differs from its directory, an app not
+                # in INSTALLED_APPS, or a non-migration .py under a
+                # ``migrations/`` directory). Warn and skip rather than
+                # aborting the entire run.
+                try:
+                    migration = self._load_migration(
+                        analyzer, app_label, migration_name
+                    )
+                except CommandError as e:
+                    self.stderr.write(self.style.WARNING(f"Skipping: {e}"))
+                    continue
+                issues.extend(
+                    analyzer.analyze_migration(
+                        migration=migration,
                         app_label=app_label,
                         migration_name=migration_name,
                     )
-                    issues.extend(app_issues)
+                )
         elif new_only:
             if app_labels:
                 for app_label in app_labels:
-                    issues.extend(analyzer.analyze_new_migrations(app_label))
+                    issues.extend(
+                        analyzer.analyze_new_migrations(
+                            app_label, exclude_apps=exclude_apps
+                        )
+                    )
             else:
-                issues.extend(analyzer.analyze_new_migrations())
+                issues.extend(
+                    analyzer.analyze_new_migrations(exclude_apps=exclude_apps)
+                )
         elif app_labels:
             for app_label in app_labels:
                 if app_label not in exclude_apps:

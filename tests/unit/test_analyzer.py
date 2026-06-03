@@ -502,6 +502,85 @@ class TestAnalyzeNewMigrations:
             issues = analyzer.analyze_new_migrations()
             assert issues == []
 
+    def test_analyze_new_migrations_excludes_apps(self, mock_migration_factory):
+        """Test that analyze_new_migrations honors the exclude_apps list."""
+        from unittest.mock import MagicMock, patch
+
+        unsafe = [
+            migrations.AddField(
+                model_name="user",
+                name="email",
+                field=models.CharField(max_length=255),  # NOT NULL, no default
+            )
+        ]
+        disk = {
+            ("testapp", "0001_initial"): mock_migration_factory(
+                unsafe, app_label="testapp", name="0001_initial"
+            ),
+            ("admin", "0001_initial"): mock_migration_factory(
+                unsafe, app_label="admin", name="0001_initial"
+            ),
+        }
+        mock_loader = self._make_mock_loader(disk)
+        mock_recorder = MagicMock()
+        mock_recorder.applied_migrations.return_value = set()
+
+        with (
+            patch(
+                "django.db.migrations.loader.MigrationLoader",
+                return_value=mock_loader,
+            ),
+            patch(
+                "django.db.migrations.recorder.MigrationRecorder",
+                return_value=mock_recorder,
+            ),
+        ):
+            analyzer = MigrationAnalyzer(db_vendor="postgresql")
+            issues = analyzer.analyze_new_migrations(exclude_apps=["admin"])
+
+        analyzed_apps = {issue.app_label for issue in issues}
+        assert "admin" not in analyzed_apps
+        assert "testapp" in analyzed_apps
+
+
+class TestSeparateDatabaseAndState:
+    """Operations wrapped in SeparateDatabaseAndState must still be analyzed."""
+
+    def test_wrapped_database_operation_is_analyzed(self, mock_migration_factory):
+        """An unsafe op inside database_operations is detected (was a blind spot)."""
+        unsafe = migrations.AddField(
+            model_name="user",
+            name="email",
+            field=models.CharField(max_length=255),  # NOT NULL, no default
+        )
+        sds = migrations.SeparateDatabaseAndState(
+            database_operations=[unsafe],
+            state_operations=[],
+        )
+        migration = mock_migration_factory([sds])
+
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+        issues = analyzer.analyze_migration(
+            migration, app_label="testapp", migration_name="0001_test"
+        )
+
+        assert "SM001" in {issue.rule_id for issue in issues}
+
+    def test_empty_separate_database_and_state_is_safe(self, mock_migration_factory):
+        """A SeparateDatabaseAndState with no database_operations yields nothing."""
+        sds = migrations.SeparateDatabaseAndState(
+            database_operations=[],
+            state_operations=[],
+        )
+        migration = mock_migration_factory([sds])
+
+        analyzer = MigrationAnalyzer(db_vendor="postgresql")
+        issues = analyzer.analyze_migration(
+            migration, app_label="testapp", migration_name="0001_test"
+        )
+
+        assert issues == []
+
 
 class TestSquashedMigrations:
     """Tests for handling squashed/replaced migrations without KeyError."""

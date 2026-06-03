@@ -231,7 +231,7 @@ Documentation: https://django-safe-migrations.readthedocs.io/
 
     # Import after Django setup
     from django_safe_migrations.analyzer import MigrationAnalyzer
-    from django_safe_migrations.conf import log_config_warnings
+    from django_safe_migrations.conf import get_fail_on_warning, log_config_warnings
     from django_safe_migrations.reporters import get_reporter
     from django_safe_migrations.rules.base import Issue, Severity
 
@@ -266,9 +266,16 @@ Documentation: https://django-safe-migrations.readthedocs.io/
 
     if args.diff is not None:
         # Diff mode — only check changed migrations
-        from django_safe_migrations.diff import get_changed_apps_and_migrations
+        from django_safe_migrations.diff import (
+            DiffError,
+            get_changed_apps_and_migrations,
+        )
 
-        changed = get_changed_apps_and_migrations(args.diff)
+        try:
+            changed = get_changed_apps_and_migrations(args.diff)
+        except DiffError as e:
+            print(str(e), file=sys.stderr)
+            return 2
         if args.verbose:
             print(
                 f"Diff mode: checking {len(changed)} changed migration(s)",
@@ -284,9 +291,13 @@ Documentation: https://django-safe-migrations.readthedocs.io/
     elif args.new_only:
         if args.app_labels:
             for app_label in args.app_labels:
-                issues.extend(analyzer.analyze_new_migrations(app_label))
+                issues.extend(
+                    analyzer.analyze_new_migrations(
+                        app_label, exclude_apps=exclude_apps
+                    )
+                )
         else:
-            issues.extend(analyzer.analyze_new_migrations())
+            issues.extend(analyzer.analyze_new_migrations(exclude_apps=exclude_apps))
     elif args.app_labels:
         for app_label in args.app_labels:
             if app_label not in exclude_apps:
@@ -328,13 +339,14 @@ Documentation: https://django-safe-migrations.readthedocs.io/
     # Generate report
     reporter.report(issues)
 
-    # Determine exit code
+    # Determine exit code (CLI flag OR settings-level FAIL_ON_WARNING)
+    fail_on_warning = args.fail_on_warning or get_fail_on_warning()
     errors = [i for i in issues if i.severity == Severity.ERROR]
     warnings = [i for i in issues if i.severity == Severity.WARNING]
 
     if errors:
         return 1
-    elif warnings and args.fail_on_warning:
+    elif warnings and fail_on_warning:
         return 1
 
     return 0

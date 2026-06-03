@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-06-03
+
+### Fixed
+
+- Fix version desync: `__version__` was stuck at `0.5.2` while the package
+  shipped as `0.6.0`, which mislabeled the SARIF reporter's tool driver
+  version in GitHub Code Scanning. Bumped to `0.6.1` and added a test that
+  asserts `__version__` matches the `pyproject.toml` version.
+- Analyze operations wrapped in `SeparateDatabaseAndState`. Previously, unsafe
+  database operations hidden inside the wrapper (e.g. a NOT NULL `AddField`, a
+  non-concurrent `AddIndex`, an `AddConstraint`) were silently skipped.
+- `--new-only` now honors `EXCLUDED_APPS` and the default Django built-in app
+  exclusion, consistent with a full run. Previously it scanned every app,
+  including `admin`/`auth`/etc.
+- Settings-level `FAIL_ON_WARNING` is now honored by both the management
+  command and the standalone CLI exit codes (previously only the
+  `--fail-on-warning` flag had any effect).
+- `--diff` no longer aborts the entire run when a changed file does not resolve
+  to a known migration (custom `AppConfig.label`, an app not in
+  `INSTALLED_APPS`, or a non-migration `.py` under a `migrations/` directory).
+  Such files are skipped with a warning. The standalone CLI now also reports
+  `DiffError` cleanly (exit 2) instead of an uncaught traceback.
+
+### Security
+
+- `--diff BASE_REF` now rejects refs beginning with `-`, preventing git
+  argument injection (e.g. `--output=<file>`, which could make git write the
+  diff to an arbitrary path).
+
+### Performance
+
+- Resolve the old-field state for `AlterField` once per operation instead of
+  once per rule, and build the `MigrationLoader` once per analysis run and
+  reuse it instead of rebuilding it for every app and every `AlterField`. This
+  removes an O(rules × migrations) blow-up in field-state resolution.
+
 ## [0.6.0] - 2026-03-24
 
 ### Added

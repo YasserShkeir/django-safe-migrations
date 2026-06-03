@@ -40,6 +40,11 @@ def get_changed_migration_files(base_ref: str = "main") -> list[str]:
     Raises:
         DiffError: If the git ref does not exist or git command fails.
     """
+    # Reject refs that could be interpreted as git options (argument
+    # injection, e.g. ``--output=<file>`` which would make git write to an
+    # arbitrary path). A leading dash is never valid in a branch/tag/commit.
+    if base_ref.startswith("-"):
+        raise DiffError(f"Invalid base ref '{base_ref}': refs may not start with '-'.")
     try:
         result = subprocess.run(  # nosec B603 B607
             ["git", "diff", "--name-only", "--diff-filter=ACMR", base_ref],
