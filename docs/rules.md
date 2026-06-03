@@ -1443,7 +1443,7 @@ ______________________________________________________________________
 
 ### What it detects
 
-`AddField` or `CreateModel` using `AutoField` or `SmallAutoField` as a primary key. These 32-bit integer types max out at ~2.1 billion rows.
+`AddField` or `CreateModel` using `AutoField`, `SmallAutoField`, `IntegerField`, or `SmallIntegerField` as a primary key. These 32-bit integer types max out at ~2.1 billion rows.
 
 ### Why it's dangerous
 

@@ -61,6 +61,7 @@ RULE_CATEGORIES: dict[str, list[str]] = {
         "SM011",
         "SM012",
         "SM013",
+        "SM017",
         "SM018",
         "SM021",
         "SM030",

@@ -45,21 +45,6 @@ class AlterColumnTypeRule(BaseRule):
     severity = Severity.WARNING
     description = "Changing column type may rewrite table and lock it"
 
-    # Attributes that are metadata-only and don't affect the database schema
-    METADATA_ONLY_ATTRIBUTES = frozenset(
-        {
-            "verbose_name",
-            "help_text",
-            "error_messages",
-            "validators",
-            "choices",
-            "editable",
-            "serialize",
-            "blank",
-            "db_comment",
-        }
-    )
-
     def check(
         self,
         operation: Operation,
@@ -126,66 +111,38 @@ class AlterColumnTypeRule(BaseRule):
         old_type = old_field.__class__.__name__
         new_type = new_field.__class__.__name__
 
-        # Type change is potentially unsafe
+        # A change of field/column type is potentially a full table rewrite.
         if old_type != new_type:
             return False
 
-        # Same type — check if only metadata attributes changed
-        for attr in self.METADATA_ONLY_ATTRIBUTES:
-            old_val = getattr(old_field, attr, None)
-            new_val = getattr(new_field, attr, None)
-            if old_val != new_val:
-                logger.debug(
-                    "Metadata-only attribute '%s' changed: %s -> %s",
-                    attr,
-                    old_val,
-                    new_val,
-                )
+        # Changing the column collation rewrites the table on PostgreSQL.
+        old_collation = getattr(old_field, "db_collation", None)
+        new_collation = getattr(new_field, "db_collation", None)
+        if old_collation != new_collation:
+            return False
 
-        # Check if null changed (adding null=True is safe)
-        old_null = getattr(old_field, "null", False)
-        new_null = getattr(new_field, "null", False)
-        if old_null != new_null and new_null:
-            # Adding nullable — safe
-            return True
+        # Adding (or removing) db_index builds/drops an index, which locks.
+        old_index = getattr(old_field, "db_index", False)
+        new_index = getattr(new_field, "db_index", False)
+        if old_index != new_index:
+            return False
 
-        # Check if default changed (safe, metadata-only in PostgreSQL)
-        from django.db.models.fields import NOT_PROVIDED
-
-        old_default = getattr(old_field, "default", NOT_PROVIDED)
-        new_default = getattr(new_field, "default", NOT_PROVIDED)
-        if old_default != new_default and old_type == new_type:
-            # Changing default on same type is safe (no schema change)
-            # Check if anything else schema-affecting changed
-            old_null = getattr(old_field, "null", False)
-            new_null = getattr(new_field, "null", False)
-            old_max = getattr(old_field, "max_length", None)
-            new_max = getattr(new_field, "max_length", None)
-            old_unique = getattr(old_field, "unique", False)
-            new_unique = getattr(new_field, "unique", False)
-
-            if old_null == new_null and old_max == new_max and old_unique == new_unique:
-                return True
-
-        # Same type, no schema-affecting change detected
-        # Still check if there's a real schema change
-        old_null = getattr(old_field, "null", False)
-        new_null = getattr(new_field, "null", False)
-        old_max = getattr(old_field, "max_length", None)
-        new_max = getattr(new_field, "max_length", None)
+        # Adding a UNIQUE constraint requires a full scan/lock (see SM021).
         old_unique = getattr(old_field, "unique", False)
         new_unique = getattr(new_field, "unique", False)
+        if new_unique and not old_unique:
+            return False
 
-        if (
-            old_type == new_type
-            and old_null == new_null
-            and old_max == new_max
-            and old_unique == new_unique
-        ):
-            # No schema-affecting attributes changed — metadata only
-            return True
+        # max_length: increasing it is a metadata-only change on PostgreSQL,
+        # but decreasing it rewrites/validates the column (see SM013).
+        old_max = getattr(old_field, "max_length", None)
+        new_max = getattr(new_field, "max_length", None)
+        if old_max is not None and new_max is not None and new_max < old_max:
+            return False
 
-        return False
+        # Anything left (metadata, default, nullable, db_column, or a
+        # max_length increase) is a safe, non-rewriting change.
+        return True
 
     def _is_likely_safe_change(self, field: object) -> bool:
         """Fallback heuristic when old field state is unavailable.

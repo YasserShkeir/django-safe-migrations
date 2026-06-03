@@ -70,7 +70,7 @@ Disable entire categories of rules at once. Available categories:
 
 | Category          | Description               | Rules                                                                                            |
 | ----------------- | ------------------------- | ------------------------------------------------------------------------------------------------ |
-| `postgresql`      | PostgreSQL-specific rules | SM005, SM010, SM011, SM012, SM013, SM018, SM021, SM030, SM031, SM034                             |
+| `postgresql`      | PostgreSQL-specific rules | SM005, SM010, SM011, SM012, SM013, SM017, SM018, SM021, SM030, SM031, SM034                      |
 | `mysql`           | MySQL-specific rules      | (none currently)                                                                                 |
 | `sqlite`          | SQLite-specific rules     | (none currently)                                                                                 |
 | `indexes`         | Index-related operations  | SM010, SM011, SM018, SM021, SM030                                                                |

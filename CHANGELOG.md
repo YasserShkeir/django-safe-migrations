@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **SM004**: stop flagging a `CharField` `max_length` *increase* as a table
+  rewrite (it is metadata-only on PostgreSQL), and start flagging
+  `db_collation` and `db_index` changes, which do rewrite/lock the table.
+- **SM012**: detect `ALTER TYPE ... ADD VALUE` when the enum type name is
+  schema-qualified (`myschema.my_enum`) or double-quoted (`"My Enum"`).
+- **SM022**: flag `datetime.date.today` as an expensive per-row default
+  (its bare `__name__` is `today`, which was missing from the slow-callable
+  list).
+- **SM024**: the fix suggestion no longer recommends `migrations.RunSQL(...,
+  params=...)`, which raises `TypeError` because `RunSQL` has no `params`
+  argument; it now points to `RunPython` with a parameterized cursor.
+
+### Changed
+
+- **SM028**: now also detects 32-bit `IntegerField` and `SmallIntegerField`
+  primary keys (previously only `AutoField`/`SmallAutoField`), matching the
+  rule's stated intent.
+- Add `SM017` to the `postgresql` rule category (it is PostgreSQL-only via
+  `db_vendors` but was missing from the category map).
+
 ## [0.6.1] - 2026-06-03
 
 ### Fixed

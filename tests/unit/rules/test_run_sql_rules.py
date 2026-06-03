@@ -157,6 +157,30 @@ class TestEnumAddValueInTransactionRule:
         assert issue is not None
         assert issue.rule_id == "SM012"
 
+    def test_detects_schema_qualified_enum(self, mock_migration):
+        """SM012 detects a schema-qualified enum type name."""
+        rule = EnumAddValueInTransactionRule()
+        operation = migrations.RunSQL(
+            sql="ALTER TYPE myschema.my_enum ADD VALUE 'new_entry'",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM012"
+
+    def test_detects_quoted_enum(self, mock_migration):
+        """SM012 detects a double-quoted enum type name."""
+        rule = EnumAddValueInTransactionRule()
+        operation = migrations.RunSQL(
+            sql="ALTER TYPE \"My Enum\" ADD VALUE 'new_entry'",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM012"
+
 
 class TestLargeDataMigrationRule:
     """Tests for LargeDataMigrationRule (SM008)."""
