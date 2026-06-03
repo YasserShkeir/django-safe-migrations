@@ -119,9 +119,9 @@ The SARIF output includes:
 
 | django-safe-migrations | SARIF Level | GitHub Display |
 | ---------------------- | ----------- | -------------- |
-| ERROR                  | `error`     | 🔴 Error       |
-| WARNING                | `warning`   | 🟡 Warning     |
-| INFO                   | `note`      | 🔵 Note        |
+| ERROR                  | `error`     | Error          |
+| WARNING                | `warning`   | Warning        |
+| INFO                   | `note`      | Note           |
 
 ## Command Options
 

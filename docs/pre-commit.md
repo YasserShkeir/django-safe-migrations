@@ -131,10 +131,10 @@ Check Django migrations................................................Failed
 
 Found 1 migration issue(s):
 
-✖ ERROR [SM001] myapp/migrations/0002_add_field.py
+ERROR [SM001] myapp/migrations/0002_add_field.py
    Adding NOT NULL field 'email' without a default value
 
-   💡 Suggestion:
+   Suggestion:
       Add the field as nullable first, then backfill, then add NOT NULL.
 ```
 

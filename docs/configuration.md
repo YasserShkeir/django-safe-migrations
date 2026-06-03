@@ -262,10 +262,10 @@ migrations.RunSQL(
 2. **Be specific** — Only suppress the rules that apply:
 
    ```python
-   # ✅ Good - specific
+   # Good - specific
    # safe-migrations: ignore SM001
 
-   # ❌ Avoid - too broad
+   # Avoid - too broad
    # safe-migrations: ignore all
    ```
 
@@ -473,7 +473,7 @@ Each path must be a fully qualified dotted path to a class that extends `BaseRul
 
 #### Security Considerations
 
-> ⚠️ **Important:** The `EXTRA_RULES` setting uses dynamic imports via `importlib.import_module()`.
+> **Important:** The `EXTRA_RULES` setting uses dynamic imports via `importlib.import_module()`.
 
 **Risk Assessment:**
 
@@ -492,12 +492,12 @@ Each path must be a fully qualified dotted path to a class that extends `BaseRul
 3. **Don't use user input** - Never construct `EXTRA_RULES` paths from user-supplied data:
 
    ```python
-   # ❌ NEVER DO THIS
+   # NEVER DO THIS
    SAFE_MIGRATIONS = {
        "EXTRA_RULES": [os.environ.get("CUSTOM_RULE")],  # Dangerous!
    }
 
-   # ✅ SAFE - hardcoded paths only
+   # SAFE - hardcoded paths only
    SAFE_MIGRATIONS = {
        "EXTRA_RULES": ["myapp.rules.MyRule"],
    }

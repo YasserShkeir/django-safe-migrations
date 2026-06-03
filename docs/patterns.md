@@ -17,7 +17,7 @@ On large tables, this can lock the table for minutes or hours.
 ### Unsafe Pattern
 
 ```python
-# ❌ This will lock the table and fail if rows exist
+# This will lock the table and fail if rows exist
 migrations.AddField(
     model_name='user',
     name='email',
@@ -74,7 +74,7 @@ Standard index creation locks the table for writes during the entire operation.
 ### Unsafe Pattern
 
 ```python
-# ❌ Locks table for writes
+# Locks table for writes
 migrations.AddIndex(
     model_name='user',
     index=models.Index(fields=['email'], name='user_email_idx'),
@@ -113,7 +113,7 @@ Adding a unique constraint requires a full table scan and locks the table.
 ### Unsafe Pattern
 
 ```python
-# ❌ Locks table, scans all rows
+# Locks table, scans all rows
 migrations.AddConstraint(
     model_name='user',
     constraint=models.UniqueConstraint(fields=['email'], name='unique_email'),
@@ -161,7 +161,7 @@ Adding a foreign key validates all existing rows, which can be slow on large tab
 ### Unsafe Pattern
 
 ```python
-# ❌ Validates all existing rows
+# Validates all existing rows
 migrations.AddField(
     model_name='order',
     name='user',
@@ -205,7 +205,7 @@ During rolling deployments, old code may still reference the column.
 ### Unsafe Pattern
 
 ```python
-# ❌ Old code will crash trying to SELECT this column
+# Old code will crash trying to SELECT this column
 migrations.RemoveField(
     model_name='user',
     name='legacy_field',
@@ -244,7 +244,7 @@ Renaming breaks all existing code referencing the old name.
 ### Unsafe Pattern
 
 ```python
-# ❌ Old code will crash
+# Old code will crash
 migrations.RenameField(
     model_name='user',
     old_name='name',
@@ -316,7 +316,7 @@ Adding a CHECK constraint validates all existing rows.
 ### Unsafe Pattern
 
 ```python
-# ❌ Scans and locks table
+# Scans and locks table
 migrations.AddConstraint(
     model_name='order',
     constraint=models.CheckConstraint(
@@ -356,7 +356,7 @@ ______________________________________________________________________
 ### Always Provide Reverse SQL
 
 ```python
-# ✅ Reversible
+# Reversible
 migrations.RunSQL(
     sql='CREATE INDEX user_email_idx ON myapp_user(email);',
     reverse_sql='DROP INDEX user_email_idx;',
@@ -364,7 +364,7 @@ migrations.RunSQL(
 ```
 
 ```python
-# ❌ Not reversible - migration cannot be rolled back
+# Not reversible - migration cannot be rolled back
 migrations.RunSQL(
     sql='CREATE INDEX user_email_idx ON myapp_user(email);',
 )
@@ -439,7 +439,7 @@ Adding enum values inside a transaction fails on PostgreSQL.
 ### Unsafe Pattern
 
 ```python
-# ❌ Fails: cannot add enum value inside transaction
+# Fails: cannot add enum value inside transaction
 migrations.RunSQL("ALTER TYPE myenum ADD VALUE 'new_value';")
 ```
 
@@ -472,7 +472,7 @@ to verify no NULL values exist. If NULL values exist, the migration fails.
 ### Unsafe Pattern
 
 ```python
-# ❌ Will fail if any NULL values exist
+# Will fail if any NULL values exist
 migrations.AlterField(
     model_name='user',
     name='nickname',
@@ -543,7 +543,7 @@ blocking writes for the duration of index creation.
 ### Unsafe Pattern
 
 ```python
-# ❌ Locks table during index creation
+# Locks table during index creation
 migrations.AlterField(
     model_name='user',
     name='email',
@@ -632,7 +632,7 @@ with `db_index=False`, JOIN queries can become very slow on large tables.
 ### Pattern to Avoid
 
 ```python
-# ❌ No index means slow JOINs
+# No index means slow JOINs
 migrations.AddField(
     model_name='order',
     name='customer',
@@ -651,7 +651,7 @@ migrations.AddField(
 - The field is never used in WHERE or JOIN clauses
 
 ```python
-# ✅ OK if you have a covering index
+# OK if you have a covering index
 migrations.AddField(
     model_name='order',
     name='customer',
@@ -732,7 +732,7 @@ Using `.all()` without `.iterator()` loads the entire table into memory.
 ### Unsafe Pattern
 
 ```python
-# ❌ Loads all rows into memory at once
+# Loads all rows into memory at once
 def migrate_data(apps, schema_editor):
     User = apps.get_model('myapp', 'User')
     for user in User.objects.all():  # OOM on large tables!
@@ -743,7 +743,7 @@ def migrate_data(apps, schema_editor):
 ### Safe Pattern
 
 ```python
-# ✅ Process in batches
+# Process in batches
 def migrate_data(apps, schema_editor):
     User = apps.get_model('myapp', 'User')
     batch_size = 1000
@@ -765,7 +765,7 @@ def migrate_data(apps, schema_editor):
 Or use `.iterator()`:
 
 ```python
-# ✅ Uses server-side cursor
+# Uses server-side cursor
 def migrate_data(apps, schema_editor):
     User = apps.get_model('myapp', 'User')
     for user in User.objects.all().iterator(chunk_size=1000):

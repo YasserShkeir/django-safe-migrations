@@ -130,11 +130,11 @@ python manage.py check_migrations --watch
 ```
 Found 2 migration issue(s):
 
-✖ ERROR [SM001] myapp/migrations/0002_add_email.py:15
+ERROR [SM001] myapp/migrations/0002_add_email.py:15
    Adding NOT NULL field 'email' to 'user' without a default value will lock the table
    Operation: AddField(user.email)
 
-   💡 Suggestion:
+   Suggestion:
       Safe pattern for adding NOT NULL field:
 
       1. Migration 1 - Add field as nullable:
@@ -153,7 +153,7 @@ Found 2 migration issue(s):
              field=models.CharField(max_length=255, null=False),
          )
 
-⚠ WARNING [SM002] myapp/migrations/0003_remove_old.py:10
+WARNING [SM002] myapp/migrations/0003_remove_old.py:10
    Dropping column 'old_field' from 'user' - ensure all code references have been removed first
    Operation: RemoveField(user.old_field)
 
@@ -161,7 +161,7 @@ Found 2 migration issue(s):
 Summary: 1 error(s), 1 warning(s)
 ```
 
-## 🔄 CI/CD Integration
+## CI/CD Integration
 
 ### GitHub Actions
 
@@ -205,7 +205,7 @@ repos:
         pass_filenames: false
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 ### Command Options
 
@@ -248,11 +248,11 @@ for issue in issues:
         print(f"Suggestion: {issue.suggestion}")
 ```
 
-## 📚 Safe Migration Patterns
+## Safe Migration Patterns
 
 ### Adding a NOT NULL Column
 
-❌ **Unsafe:**
+**Unsafe:**
 
 ```python
 migrations.AddField(
@@ -262,7 +262,7 @@ migrations.AddField(
 )
 ```
 
-✅ **Safe:**
+**Safe:**
 
 ```python
 # Migration 1: Add nullable field
@@ -289,7 +289,7 @@ migrations.AlterField(
 
 ### Creating an Index (PostgreSQL)
 
-❌ **Unsafe:**
+**Unsafe:**
 
 ```python
 migrations.AddIndex(
@@ -298,7 +298,7 @@ migrations.AddIndex(
 )
 ```
 
-✅ **Safe:**
+**Safe:**
 
 ```python
 from django.contrib.postgres.operations import AddIndexConcurrently
@@ -314,7 +314,7 @@ class Migration(migrations.Migration):
     ]
 ```
 
-## ⚠️ Known Limitations
+## Known Limitations
 
 ### Static Analysis Only
 
@@ -375,7 +375,7 @@ Rules that inspect Python source code (like SM026 for RunPython batching) may no
 - Some Docker configurations
 - When source files are not available
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please read our [Contributing Guide](CONTRIBUTING.md) for details.
 
@@ -395,17 +395,17 @@ pytest
 make lint
 ```
 
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-## 💖 Support
+## Support
 
 If this project helps you ship safer migrations, consider supporting its development:
 
 [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-red.svg)](https://www.yasser-shkeir.com/donate)
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 Inspired by:
 

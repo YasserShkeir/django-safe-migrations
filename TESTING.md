@@ -44,11 +44,11 @@ ______________________________________________________________________
 ```
              │ Django 3.2 │ Django 4.2 │ Django 5.0 │ Django 5.1 │
 ─────────────┼────────────┼────────────┼────────────┼────────────┤
-Python 3.9   │     ✅     │     ✅     │     ❌     │     ❌     │
-Python 3.10  │     ✅     │     ✅     │     ✅     │     ✅     │
-Python 3.11  │     ✅     │     ✅     │     ✅     │     ✅     │
-Python 3.12  │     ❌     │     ✅     │     ✅     │     ✅     │
-Python 3.13  │     ❌     │     ✅     │     ✅     │     ✅     │
+Python 3.9   │    Yes     │    Yes     │     No     │     No     │
+Python 3.10  │    Yes     │    Yes     │    Yes     │    Yes     │
+Python 3.11  │    Yes     │    Yes     │    Yes     │    Yes     │
+Python 3.12  │     No     │    Yes     │    Yes     │    Yes     │
+Python 3.13  │     No     │    Yes     │    Yes     │    Yes     │
 ```
 
 **Note**: Django 5.x requires Python 3.10+; Django 3.2 doesn't support Python 3.12+.
@@ -405,11 +405,11 @@ Some rules only apply to specific databases:
 
 | Rule                        | SQLite | PostgreSQL | MySQL |
 | --------------------------- | ------ | ---------- | ----- |
-| SM001 (NOT NULL)            | ✅     | ✅         | ✅    |
-| SM002 (Drop Column)         | ✅     | ✅         | ✅    |
-| SM003 (Drop Table)          | ✅     | ✅         | ✅    |
-| SM010 (Index CONCURRENTLY)  | ❌     | ✅         | ❌    |
-| SM011 (Unique CONCURRENTLY) | ❌     | ✅         | ❌    |
+| SM001 (NOT NULL)            | Yes    | Yes        | Yes   |
+| SM002 (Drop Column)         | Yes    | Yes        | Yes   |
+| SM003 (Drop Table)          | Yes    | Yes        | Yes   |
+| SM010 (Index CONCURRENTLY)  | No     | Yes        | No    |
+| SM011 (Unique CONCURRENTLY) | No     | Yes        | No    |
 
 ### Test Settings per Database
 

@@ -30,10 +30,10 @@ If you have any unsafe migrations, you'll see output like:
 ```
 Found 1 migration issue(s):
 
-✖ ERROR [SM001] myapp/migrations/0002_add_email.py:15
+ERROR [SM001] myapp/migrations/0002_add_email.py:15
    Adding NOT NULL field 'email' to 'user' without a default value will lock the table
 
-   💡 Suggestion:
+   Suggestion:
       Safe pattern for adding NOT NULL field:
       1. Add field as nullable
       2. Backfill existing rows in batches
