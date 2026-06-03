@@ -266,6 +266,23 @@ class TestExpensiveDefaultCallableRule:
         assert issue is not None
         assert issue.rule_id == "SM022"
 
+    def test_flags_date_today_callable(self, mock_migration):
+        """SM022 flags datetime.date.today (its bare __name__ is 'today')."""
+        import datetime
+
+        from django_safe_migrations.rules.add_field import ExpensiveDefaultCallableRule
+
+        rule = ExpensiveDefaultCallableRule()
+        operation = migrations.AddField(
+            model_name="article",
+            name="published_on",
+            field=models.DateField(default=datetime.date.today),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM022"
+
 
 class TestNotNullWithoutDefaultRuleUUIDField:
     """Tests for SM001 UUIDField handling (v0.5.0 fix).
@@ -492,6 +509,63 @@ class TestPreferBigIntRule:
 
         assert suggestion is not None
         assert "BigAutoField" in suggestion
+
+    def test_detects_integerfield_pk(self, mock_migration):
+        """Test that rule detects a 32-bit IntegerField primary key."""
+        from django_safe_migrations.rules.add_field import PreferBigIntRule
+
+        rule = PreferBigIntRule()
+        operation = migrations.AddField(
+            model_name="user",
+            name="legacy_id",
+            field=models.IntegerField(primary_key=True),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM028"
+        assert "IntegerField" in issue.message
+
+    def test_detects_smallintegerfield_pk(self, mock_migration):
+        """Test that rule detects a SmallIntegerField primary key."""
+        from django_safe_migrations.rules.add_field import PreferBigIntRule
+
+        rule = PreferBigIntRule()
+        operation = migrations.AddField(
+            model_name="order",
+            name="legacy_id",
+            field=models.SmallIntegerField(primary_key=True),
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM028"
+
+    def test_ignores_integerfield_not_pk(self, mock_migration):
+        """Test that a non-primary-key IntegerField is not flagged."""
+        from django_safe_migrations.rules.add_field import PreferBigIntRule
+
+        rule = PreferBigIntRule()
+        operation = migrations.AddField(
+            model_name="user",
+            name="count",
+            field=models.IntegerField(default=0),
+        )
+
+        assert rule.check(operation, mock_migration) is None
+
+    def test_allows_bigintegerfield_pk(self, mock_migration):
+        """Test that a 64-bit BigIntegerField primary key is allowed."""
+        from django_safe_migrations.rules.add_field import PreferBigIntRule
+
+        rule = PreferBigIntRule()
+        operation = migrations.AddField(
+            model_name="user",
+            name="id",
+            field=models.BigIntegerField(primary_key=True),
+        )
+
+        assert rule.check(operation, mock_migration) is None
 
 
 class TestPreferTextOverVarcharRule:

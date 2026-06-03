@@ -201,6 +201,43 @@ class TestAlterColumnTypeRuleWithOldField:
         assert issue is not None
         assert issue.rule_id == "SM004"
 
+    def test_safe_when_max_length_increased(self, mock_migration):
+        """Increasing CharField max_length is metadata-only (safe)."""
+        rule = AlterColumnTypeRule()
+        old_field = models.CharField(max_length=50)
+        new_field = models.CharField(max_length=255)
+        operation = migrations.AlterField(
+            model_name="user", name="name", field=new_field
+        )
+
+        assert rule.check(operation, mock_migration, old_field=old_field) is None
+
+    def test_unsafe_when_db_collation_changed(self, mock_migration):
+        """Changing db_collation rewrites the table on PostgreSQL (unsafe)."""
+        rule = AlterColumnTypeRule()
+        old_field = models.CharField(max_length=100)
+        new_field = models.CharField(max_length=100, db_collation="en-x-icu")
+        operation = migrations.AlterField(
+            model_name="user", name="name", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is not None
+        assert issue.rule_id == "SM004"
+
+    def test_unsafe_when_db_index_added(self, mock_migration):
+        """Adding db_index builds an index and is not a no-op (unsafe)."""
+        rule = AlterColumnTypeRule()
+        old_field = models.CharField(max_length=100)
+        new_field = models.CharField(max_length=100, db_index=True)
+        operation = migrations.AlterField(
+            model_name="user", name="name", field=new_field
+        )
+        issue = rule.check(operation, mock_migration, old_field=old_field)
+
+        assert issue is not None
+        assert issue.rule_id == "SM004"
+
 
 class TestAlterVarcharLengthRuleWithOldField:
     """Tests for SM013 with old_field comparison."""

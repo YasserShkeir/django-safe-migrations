@@ -188,6 +188,7 @@ class ExpensiveDefaultCallableRule(BaseRule):
             "datetime.datetime.now",
             "timezone.now",
             "django.utils.timezone.now",
+            "today",
             "date.today",
             "datetime.date.today",
         }
@@ -318,11 +319,12 @@ If exact timestamp isn't required, use a static value:
 
 
 class PreferBigIntRule(BaseRule):
-    """Detect AutoField or IntegerField used as primary key.
+    """Detect a 32-bit integer field used as a primary key.
 
-    32-bit integer primary keys (AutoField, IntegerField with primary_key=True)
-    can overflow at ~2.1 billion rows. For new tables, BigAutoField or
-    BigIntegerField should be preferred to avoid costly future migrations.
+    32-bit primary keys (AutoField, SmallAutoField, IntegerField, or
+    SmallIntegerField with primary_key=True) can overflow at ~2.1 billion
+    rows. For new tables, BigAutoField or BigIntegerField should be preferred
+    to avoid costly future migrations.
 
     Safe pattern:
     Use BigAutoField or BigIntegerField for primary keys, or set
@@ -333,11 +335,13 @@ class PreferBigIntRule(BaseRule):
     severity = Severity.WARNING
     description = "Prefer BigAutoField/BigIntegerField over 32-bit primary keys"
 
-    # 32-bit auto/int field types that may overflow
+    # 32-bit auto/int field types that may overflow as primary keys
     SMALL_PK_TYPES = frozenset(
         {
             "AutoField",
             "SmallAutoField",
+            "IntegerField",
+            "SmallIntegerField",
         }
     )
 
@@ -370,7 +374,8 @@ class PreferBigIntRule(BaseRule):
                     message=(
                         f"Field '{operation.name}' on '{operation.model_name}' "
                         f"uses {field_type} as primary key. Consider using "
-                        "BigAutoField to avoid overflow at ~2.1 billion rows."
+                        "BigAutoField/BigIntegerField to avoid overflow "
+                        "at ~2.1 billion rows."
                     ),
                 )
 
@@ -388,7 +393,8 @@ class PreferBigIntRule(BaseRule):
                         message=(
                             f"Field '{field_name}' on '{model_name}' uses "
                             f"{field_type} as primary key. Consider using "
-                            "BigAutoField to avoid overflow at ~2.1 billion rows."
+                            "BigAutoField/BigIntegerField to avoid overflow "
+                            "at ~2.1 billion rows."
                         ),
                     )
 

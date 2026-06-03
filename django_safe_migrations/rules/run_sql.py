@@ -113,9 +113,10 @@ class EnumAddValueInTransactionRule(BaseRule):
     description = "Adding enum value in transaction will fail in PostgreSQL"
     db_vendors = ["postgresql"]
 
-    # Patterns that indicate adding enum value
+    # Patterns that indicate adding enum value. The type name may be
+    # schema-qualified (myschema.my_enum) or double-quoted ("My Enum").
     ENUM_ADD_PATTERNS = [
-        r"ALTER\s+TYPE\s+\w+\s+ADD\s+VALUE",
+        r'ALTER\s+TYPE\s+(?:"[^"]+"|[\w.]+)\s+ADD\s+VALUE',
     ]
 
     def check(
@@ -493,12 +494,17 @@ class SQLInjectionPatternRule(BaseRule):
    - Use identifier quoting for table/column names
    - Never interpolate user input directly
 
-4. If this warning is a false positive (e.g., you're using
-   params argument correctly), suppress it:
+   Note: migrations.RunSQL does NOT accept a `params` argument. To run a
+   parameterized query, use RunPython with a cursor instead:
+
+   def run(apps, schema_editor):
+       with schema_editor.connection.cursor() as cursor:
+           cursor.execute('UPDATE t SET c = %s WHERE id = %s', [value, pk])
+
+4. If this warning is a false positive, suppress it inline:
 
    migrations.RunSQL(  # safe-migrations: ignore SM024
-       sql='SELECT * FROM %(table)s',
-       params={'table': 'users'},
+       sql="UPDATE t SET ratio = paid / total * 100",
    )
 """
 
