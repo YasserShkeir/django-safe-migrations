@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitLab reporter**: include the line number and message in the Code Quality
   fingerprint so two distinct findings on the same operation are no longer
   given identical fingerprints (which made GitLab drop one).
+- **Baseline**: record and match an `operation_index` so baselining one issue
+  in a migration that has several operations of the same type (e.g. multiple
+  `RunSQL` ops) no longer suppresses all of them. Baseline files are now
+  version 2; legacy (version 1) files keep their previous, broader matching.
 
 ### Changed
 

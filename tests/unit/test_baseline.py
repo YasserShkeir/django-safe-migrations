@@ -68,13 +68,13 @@ class TestGenerateBaseline:
         assert "count" in data
         assert "issues" in data
 
-    def test_baseline_version_is_one(self, tmp_path, sample_issues):
-        """Test that the baseline version is 1."""
+    def test_baseline_version_is_two(self, tmp_path, sample_issues):
+        """Test that the baseline format version is 2 (adds operation_index)."""
         baseline_path = str(tmp_path / "baseline.json")
         generate_baseline(sample_issues, baseline_path)
 
         data = json.loads((tmp_path / "baseline.json").read_text(encoding="utf-8"))
-        assert data["version"] == 1
+        assert data["version"] == 2
 
     def test_baseline_count_matches(self, tmp_path, sample_issues):
         """Test that count in baseline matches the number of issues."""
@@ -262,6 +262,65 @@ class TestFilterBaselinedIssues:
             }
         ]
         filtered = filter_baselined_issues([], baseline)
+        assert filtered == []
+
+    @staticmethod
+    def _two_run_sql_issues():
+        """Two issues sharing rule/app/migration/operation but distinct index."""
+        common = dict(
+            rule_id="SM007",
+            severity=Severity.WARNING,
+            operation="RunSQL",
+            app_label="myapp",
+            migration_name="0005_two_run_sql",
+        )
+        return [
+            Issue(message="first", operation_index=0, **common),
+            Issue(message="second", operation_index=1, **common),
+        ]
+
+    def test_precise_index_suppresses_only_matching_operation(self):
+        """A v2 baseline (with operation_index) suppresses only that op."""
+        issues = self._two_run_sql_issues()
+        baseline = [
+            {
+                "rule_id": "SM007",
+                "app_label": "myapp",
+                "migration_name": "0005_two_run_sql",
+                "operation": "RunSQL",
+                "operation_index": 0,
+            }
+        ]
+
+        filtered = filter_baselined_issues(issues, baseline)
+
+        # Only the index-0 RunSQL is suppressed; the second one survives.
+        assert [i.operation_index for i in filtered] == [1]
+
+    def test_legacy_entry_without_index_suppresses_all_same_operation(self):
+        """A legacy (v1) entry with no operation_index keeps broad behaviour."""
+        issues = self._two_run_sql_issues()
+        baseline = [
+            {
+                "rule_id": "SM007",
+                "app_label": "myapp",
+                "migration_name": "0005_two_run_sql",
+                "operation": "RunSQL",
+            }
+        ]
+
+        filtered = filter_baselined_issues(issues, baseline)
+
+        assert filtered == []
+
+    def test_generated_baseline_roundtrip_suppresses_both(self, tmp_path):
+        """Generating a baseline from both ops and re-filtering suppresses both."""
+        issues = self._two_run_sql_issues()
+        path = str(tmp_path / "baseline.json")
+        generate_baseline(issues, path)
+
+        filtered = filter_baselined_issues(issues, load_baseline(path))
+
         assert filtered == []
 
     def test_filters_multiple_matching(self, sample_issues):

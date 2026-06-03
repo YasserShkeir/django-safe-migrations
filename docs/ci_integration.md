@@ -504,7 +504,8 @@ Output:
       "file_path": "myapp/migrations/0002_add_email.py",
       "line_number": 15,
       "app_label": "myapp",
-      "migration_name": "0002_add_email"
+      "migration_name": "0002_add_email",
+      "operation_index": 0
     }
   ],
   "summary": {

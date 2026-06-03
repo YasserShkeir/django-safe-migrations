@@ -265,6 +265,8 @@ class MigrationAnalyzer:
                 issue.app_label = app_label
             if issue.migration_name is None:
                 issue.migration_name = migration_name
+            if issue.operation_index is None:
+                issue.operation_index = operation_index
 
             logger.debug(
                 "Found issue: %s in %s.%s at line %s",

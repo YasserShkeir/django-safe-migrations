@@ -30,7 +30,9 @@ def generate_baseline(issues: list[Issue], path: str) -> int:
     """Generate a baseline file from current issues.
 
     The baseline records each issue by its rule_id, app_label,
-    migration_name, and operation so it can be matched in future runs.
+    migration_name, operation, and operation_index so it can be matched in
+    future runs. The operation_index distinguishes multiple operations of the
+    same type within one migration (e.g. several ``RunSQL`` operations).
 
     Args:
         issues: Current list of issues.
@@ -47,11 +49,12 @@ def generate_baseline(issues: list[Issue], path: str) -> int:
                 "app_label": issue.app_label,
                 "migration_name": issue.migration_name,
                 "operation": issue.operation,
+                "operation_index": issue.operation_index,
             }
         )
 
     data = {
-        "version": 1,
+        "version": 2,
         "count": len(entries),
         "issues": entries,
     }
@@ -78,7 +81,7 @@ def load_baseline(path: str) -> list[dict[str, Any]]:
     data = json.loads(text)
 
     version = data.get("version", 1)
-    if version != 1:
+    if version not in (1, 2):
         logger.warning(
             "Unknown baseline version %s, attempting to load anyway", version
         )
@@ -94,7 +97,11 @@ def filter_baselined_issues(
 ) -> list[Issue]:
     """Remove issues that are present in the baseline.
 
-    Matching is done by (rule_id, app_label, migration_name, operation).
+    Matching is done by (rule_id, app_label, migration_name, operation,
+    operation_index). For backward compatibility, legacy baseline entries that
+    predate ``operation_index`` (or store it as ``None``) match on the coarser
+    (rule_id, app_label, migration_name, operation) tuple — preserving their
+    original, broader suppression behaviour.
 
     Args:
         issues: Current list of issues.
@@ -103,21 +110,33 @@ def filter_baselined_issues(
     Returns:
         Filtered list of issues not in the baseline.
     """
-    baseline_keys = {
-        (
+    # Precise keys include operation_index; coarse keys are the legacy form
+    # used when an entry has no operation_index recorded.
+    precise_keys = set()
+    coarse_keys = set()
+    for entry in baseline:
+        base = (
             entry.get("rule_id"),
             entry.get("app_label"),
             entry.get("migration_name"),
             entry.get("operation"),
         )
-        for entry in baseline
-    }
+        if entry.get("operation_index") is None:
+            coarse_keys.add(base)
+        else:
+            precise_keys.add(base + (entry.get("operation_index"),))
 
     filtered = []
     suppressed = 0
     for issue in issues:
-        key = (issue.rule_id, issue.app_label, issue.migration_name, issue.operation)
-        if key in baseline_keys:
+        coarse = (
+            issue.rule_id,
+            issue.app_label,
+            issue.migration_name,
+            issue.operation,
+        )
+        precise = coarse + (issue.operation_index,)
+        if precise in precise_keys or coarse in coarse_keys:
             suppressed += 1
         else:
             filtered.append(issue)
