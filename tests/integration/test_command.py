@@ -804,25 +804,26 @@ class TestNewRulesV040:
     def test_detects_sm026_run_python_no_batching(self):
         """Test SM026 detection for RunPython without batching.
 
-        Migration 0020_run_python_no_batching.py uses .all() without .iterator().
+        Migration 0020_run_python_no_batching.py uses .all() without .iterator()
+        or any batching, so SM026 must flag it exactly once.
         """
         out = StringIO()
         with pytest.raises(SystemExit):
             call_command("check_migrations", "testapp", format="json", stdout=out)
 
-        output = out.getvalue()
-        data = json.loads(output)
+        data = json.loads(out.getvalue())
 
-        # Find SM026 issues
         sm026_issues = [i for i in data["issues"] if i.get("rule_id") == "SM026"]
-        # Note: SM026 may not trigger if source inspection fails
-        # This is acceptable behavior documented in the rule
-        if len(sm026_issues) > 0:
-            # Verify it's from the right migration
-            migration_names = [i.get("migration_name", "") for i in sm026_issues]
-            assert any(
-                "0020_run_python_no_batching" in name for name in migration_names
-            ), "SM026 should be detected in 0020_run_python_no_batching"
+        assert len(sm026_issues) == 1, "SM026 should fire exactly once on testapp"
+
+        issue = sm026_issues[0]
+        assert "0020_run_python_no_batching" in issue.get("migration_name", "")
+        assert issue["severity"] == "warning"
+        # Robust message substrings the rule always emits
+        message = issue["message"].lower()
+        assert "update_all_users" in issue["message"]
+        assert ".all()" in message
+        assert "iterator" in message or "batch" in message
 
 
 class TestCategoryConfiguration:

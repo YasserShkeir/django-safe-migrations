@@ -14,6 +14,32 @@ if TYPE_CHECKING:
     from django.db.migrations.operations.base import Operation
 
 
+def _split_sql_statements(sql: object) -> list[str]:
+    """Return the individual SQL statements of a ``RunSQL.sql`` value, in order.
+
+    ``RunSQL.sql`` may be a single string, a list/tuple of strings, or a list
+    of ``(sql, params)`` tuples. Multi-statement strings are split on ``;``.
+    Element/statement order is preserved so callers can reason about ordering.
+    """
+    raw_chunks: list[str] = []
+    if isinstance(sql, (list, tuple)):
+        for element in sql:
+            if isinstance(element, (list, tuple)) and element:
+                raw_chunks.append(str(element[0]))
+            else:
+                raw_chunks.append(str(element))
+    else:
+        raw_chunks.append(str(sql))
+
+    statements: list[str] = []
+    for chunk in raw_chunks:
+        for stmt in chunk.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                statements.append(stmt)
+    return statements
+
+
 class RunSQLWithoutReverseRule(BaseRule):
     """Detect RunSQL without reverse_sql defined.
 
@@ -681,40 +707,43 @@ class RequireLockTimeoutRule(BaseRule):
         if not isinstance(operation, migrations.RunSQL):
             return None
 
-        sql = getattr(operation, "sql", "")
-        if isinstance(sql, (list, tuple)):
-            sql_str = " ".join(str(s) for s in sql)
-        else:
-            sql_str = str(sql)
-
-        sql_upper = sql_str.upper()
-
-        # Check if SQL contains DDL patterns
-        has_ddl = any(re.search(p, sql_upper) for p in self.DDL_PATTERNS)
-        if not has_ddl:
-            return None
-
-        # Check if lock_timeout is set in this SQL or in the same migration
-        if "LOCK_TIMEOUT" in sql_upper:
-            return None
-
-        # Check other operations in the migration for lock_timeout
-        all_operations = getattr(migration, "operations", [])
-        for op in all_operations:
+        # A lock_timeout only protects a DDL statement if it is set BEFORE it.
+        # Consider earlier operations in the migration: a prior RunSQL that sets
+        # lock_timeout protects DDL in this operation; later ops do not.
+        seen_lock_timeout = False
+        for op in getattr(migration, "operations", []):
+            if op is operation:
+                break  # stop at the current op — later ops can't protect it
             if isinstance(op, migrations.RunSQL):
-                op_sql = getattr(op, "sql", "")
-                if isinstance(op_sql, (list, tuple)):
-                    op_sql = " ".join(str(s) for s in op_sql)
-                if "LOCK_TIMEOUT" in str(op_sql).upper():
-                    return None
+                op_text = " ".join(_split_sql_statements(getattr(op, "sql", "")))
+                if "LOCK_TIMEOUT" in op_text.upper():
+                    seen_lock_timeout = True
+                    break
+
+        # Then scan this operation's statements in order: a DDL statement that
+        # has no preceding lock_timeout (here or in an earlier op) is unprotected.
+        has_unprotected_ddl = False
+        for statement in _split_sql_statements(getattr(operation, "sql", "")):
+            stmt_upper = statement.upper()
+            if "LOCK_TIMEOUT" in stmt_upper:
+                seen_lock_timeout = True
+                continue
+            if any(re.search(p, stmt_upper) for p in self.DDL_PATTERNS):
+                if not seen_lock_timeout:
+                    has_unprotected_ddl = True
+                    break
+
+        if not has_unprotected_ddl:
+            return None
 
         return self.create_issue(
             operation=operation,
             migration=migration,
             message=(
-                "RunSQL contains DDL statement without SET lock_timeout. "
-                "Consider setting a lock_timeout to prevent indefinite "
-                "blocking while waiting for locks."
+                "RunSQL contains a DDL statement without a preceding SET "
+                "lock_timeout. Set lock_timeout before the DDL (earlier in "
+                "the SQL list or in an earlier operation) to prevent "
+                "indefinite blocking while waiting for locks."
             ),
         )
 
@@ -786,17 +815,17 @@ class PreferIfExistsRule(BaseRule):
         if not isinstance(operation, migrations.RunSQL):
             return None
 
-        sql = getattr(operation, "sql", "")
-        if isinstance(sql, (list, tuple)):
-            sql_str = " ".join(str(s) for s in sql)
-        else:
-            sql_str = str(sql)
+        # Evaluate each statement independently so a bare CREATE/DROP TABLE is
+        # still flagged when a sibling statement uses IF [NOT] EXISTS. RunSQL.sql
+        # may be a string, a list of strings, or a list of (sql, params) tuples;
+        # multi-statement strings are split on ';'.
+        for statement in _split_sql_statements(getattr(operation, "sql", "")):
+            stmt_upper = statement.upper()
 
-        sql_upper = sql_str.upper()
-
-        # Check CREATE TABLE without IF NOT EXISTS
-        if re.search(r"CREATE\s+TABLE\b", sql_upper):
-            if not re.search(r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\b", sql_upper):
+            # CREATE TABLE without IF NOT EXISTS
+            if re.search(r"CREATE\s+TABLE\b", stmt_upper) and not re.search(
+                r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\b", stmt_upper
+            ):
                 return self.create_issue(
                     operation=operation,
                     migration=migration,
@@ -807,9 +836,10 @@ class PreferIfExistsRule(BaseRule):
                     ),
                 )
 
-        # Check DROP TABLE without IF EXISTS
-        if re.search(r"DROP\s+TABLE\b", sql_upper):
-            if not re.search(r"DROP\s+TABLE\s+IF\s+EXISTS\b", sql_upper):
+            # DROP TABLE without IF EXISTS
+            if re.search(r"DROP\s+TABLE\b", stmt_upper) and not re.search(
+                r"DROP\s+TABLE\s+IF\s+EXISTS\b", stmt_upper
+            ):
                 return self.create_issue(
                     operation=operation,
                     migration=migration,
