@@ -36,6 +36,24 @@ class GitHubReporter(BaseReporter):
         """
         super().__init__(stream or sys.stdout)
 
+    @staticmethod
+    def _escape_data(value: str) -> str:
+        r"""Escape a workflow-command message (the text after ``::``).
+
+        Per GitHub's spec, message data must escape ``%``, ``\r``, ``\n``.
+        """
+        return value.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+    @classmethod
+    def _escape_property(cls, value: str) -> str:
+        r"""Escape a workflow-command property value (e.g. ``file=``/``title=``).
+
+        Property values are comma-separated and colon-delimited, so in
+        addition to the message escapes they must also escape ``:`` and
+        ``,`` (otherwise a filename like ``C:\a,b`` corrupts the command).
+        """
+        return cls._escape_data(value).replace(":", "%3A").replace(",", "%2C")
+
     def _format_annotation(self, issue: Issue) -> str:
         """Format an issue as a GitHub workflow command.
 
@@ -47,11 +65,11 @@ class GitHubReporter(BaseReporter):
         """
         command = self.SEVERITY_COMMANDS.get(issue.severity, "notice")
 
-        # Build parameters
+        # Build parameters (property values need the stricter escaping)
         params = []
 
         if issue.file_path:
-            params.append(f"file={issue.file_path}")
+            params.append(f"file={self._escape_property(issue.file_path)}")
         if issue.line_number:
             params.append(f"line={issue.line_number}")
 
@@ -60,18 +78,12 @@ class GitHubReporter(BaseReporter):
         if issue.operation:
             title_parts.append(str(issue.operation))
         title = " ".join(title_parts)
-        # Escape special characters in title
-        title = title.replace("%", "%25")
-        title = title.replace("\n", "%0A")
-        title = title.replace("\r", "%0D")
-        params.append(f"title={title}")
+        params.append(f"title={self._escape_property(title)}")
 
         params_str = ",".join(params)
 
-        # Message (escape special characters)
-        message = issue.message.replace("%", "%25")
-        message = message.replace("\n", "%0A")
-        message = message.replace("\r", "%0D")
+        # Message uses the data (non-property) escaping
+        message = self._escape_data(issue.message)
 
         return f"::{command} {params_str}::{message}"
 

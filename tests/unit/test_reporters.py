@@ -306,6 +306,48 @@ class TestGitHubReporterEscaping:
         assert "title=[SM001]" in output
         assert "None" not in output.split("title=")[1].split("::")[0]
 
+    def test_escapes_comma_and_colon_in_property_values(self):
+        """Commas/colons in file and title properties must be escaped.
+
+        Otherwise a comma would be read as a parameter separator (and a
+        Windows drive colon would corrupt the command).
+        """
+        stream = StringIO()
+        reporter = GitHubReporter(stream=stream)
+        issue = Issue(
+            rule_id="SM024",
+            severity=Severity.ERROR,
+            operation="RunSQL(a,b)",
+            message="msg",
+            file_path="C:/proj/a,b/migrations/0001.py",
+            line_number=5,
+        )
+        output = reporter.report([issue])
+        line = next(line for line in output.splitlines() if line.startswith("::error"))
+        props = line.split("::")[1]  # the file=...,line=...,title=... segment
+
+        # Raw separators must not leak into property values
+        assert "a,b" not in props
+        assert "C:/proj" not in props
+        assert "%2C" in props  # escaped comma
+        assert "%3A" in props  # escaped colon
+        # Genuine delimiters are still present
+        assert "file=" in props and "line=5" in props and "title=" in props
+
+    def test_does_not_over_escape_message(self):
+        """The message (after ``::``) keeps ``:`` and ``,`` unescaped."""
+        stream = StringIO()
+        reporter = GitHubReporter(stream=stream)
+        issue = Issue(
+            rule_id="SM001",
+            severity=Severity.ERROR,
+            operation="AddField",
+            message="reserved names: 'user', 'order'",
+        )
+        output = reporter.report([issue])
+        message = output.split("::error", 1)[1].split("::", 1)[1]
+        assert message.startswith("reserved names: 'user', 'order'")
+
 
 class TestGetReporter:
     """Tests for get_reporter factory function."""
@@ -470,6 +512,30 @@ class TestGitLabReporter:
         data = json.loads(output)
         fingerprints = [e["fingerprint"] for e in data]
         assert len(fingerprints) == len(set(fingerprints))
+
+    def test_fingerprint_distinguishes_same_operation(self):
+        """Two findings on the same operation must not collide.
+
+        They share rule/app/migration/operation but differ in line and
+        message, so GitLab must not deduplicate them.
+        """
+        stream = StringIO()
+        reporter = GitLabReporter(stream=stream)
+        common = dict(
+            rule_id="SM035",
+            severity=Severity.INFO,
+            operation="RunSQL",
+            app_label="myapp",
+            migration_name="0005_two_run_sql",
+            file_path="myapp/migrations/0005_two_run_sql.py",
+        )
+        issues = [
+            Issue(message="first DDL without lock_timeout", line_number=10, **common),
+            Issue(message="second DDL without lock_timeout", line_number=20, **common),
+        ]
+        data = json.loads(reporter.report(issues))
+
+        assert data[0]["fingerprint"] != data[1]["fingerprint"]
 
     def test_location_has_path(self, sample_issues):
         """Test that location contains the file path."""

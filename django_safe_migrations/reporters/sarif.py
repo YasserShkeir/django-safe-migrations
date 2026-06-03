@@ -102,6 +102,25 @@ class SarifReporter(BaseReporter):
         super().__init__(stream or sys.stdout)
         self.pretty = pretty
         self._tool_version = tool_version
+        self._base_dir: str | None = None
+
+    def _relative_uri(self, file_path: str) -> str:
+        """Return *file_path* as a forward-slashed, repo-root-relative URI.
+
+        GitHub Code Scanning resolves artifact URIs against the repository
+        root, so paths are made relative to the git root (falling back to the
+        current working directory). The git root is resolved once and cached.
+        """
+        if self._base_dir is None:
+            from django_safe_migrations.diff import _find_git_root
+
+            self._base_dir = _find_git_root()
+        try:
+            rel = os.path.relpath(file_path, self._base_dir)
+        except ValueError:
+            # On Windows, relpath fails across drives — keep the original.
+            rel = file_path
+        return rel.replace(os.sep, "/")
 
     @property
     def tool_version(self) -> str:
@@ -221,19 +240,16 @@ class SarifReporter(BaseReporter):
 
         # Add location if available
         if issue.file_path:
-            # Convert absolute paths to relative for GitHub Code Scanning
-            file_uri = issue.file_path
-            if os.path.isabs(file_uri):
-                try:
-                    file_uri = os.path.relpath(file_uri)
-                except ValueError:
-                    pass  # On Windows, relpath can fail across drives
+            # Emit a forward-slashed, repo-root-relative URI. No uriBaseId is
+            # set: GitHub Code Scanning resolves relative URIs against the repo
+            # root, and an undeclared uriBaseId (the old "%SRCROOT%") is invalid
+            # SARIF that GitHub rejects.
+            file_uri = self._relative_uri(issue.file_path)
 
             location: dict[str, Any] = {
                 "physicalLocation": {
                     "artifactLocation": {
                         "uri": file_uri,
-                        "uriBaseId": "%SRCROOT%",
                     }
                 }
             }

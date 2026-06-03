@@ -635,8 +635,14 @@ class TestSarifAbsolutePathConversion:
 
         assert uri == "myapp/migrations/0001.py"
 
-    def test_srcroot_uri_base_id(self) -> None:
-        """Test that uriBaseId is set to %SRCROOT%."""
+    def test_no_undeclared_uri_base_id(self) -> None:
+        """Test that no (undeclared) uriBaseId is emitted.
+
+        GitHub Code Scanning resolves relative artifact URIs against the
+        repository root; an undeclared uriBaseId (the old ``%SRCROOT%``) is
+        invalid SARIF that GitHub rejects. The URI must also use forward
+        slashes.
+        """
         stream = StringIO()
         reporter = SarifReporter(stream=stream)
 
@@ -654,7 +660,9 @@ class TestSarifAbsolutePathConversion:
         artifact = data["runs"][0]["results"][0]["locations"][0]["physicalLocation"][
             "artifactLocation"
         ]
-        assert artifact["uriBaseId"] == "%SRCROOT%"
+        assert "uriBaseId" not in artifact
+        assert not artifact["uri"].startswith("/")
+        assert "\\" not in artifact["uri"]
 
 
 class TestSarifHelpUri:
