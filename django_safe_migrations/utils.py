@@ -333,6 +333,7 @@ def resolve_field_before_operation(
     operation_index: int,
     model_name: str,
     field_name: str,
+    loader: Any = None,
 ) -> Any:
     """Resolve the field definition before an AlterField operation.
 
@@ -346,6 +347,10 @@ def resolve_field_before_operation(
         operation_index: The index of the operation within the migration.
         model_name: The model name (lowercase).
         field_name: The field name.
+        loader: Optional pre-built ``MigrationLoader`` to reuse. When omitted
+                a new loader is constructed, which re-reads every migration on
+                disk; callers analysing many operations should pass a shared
+                loader to avoid that cost.
 
     Returns:
         The old field instance, or None if it cannot be resolved.
@@ -353,7 +358,8 @@ def resolve_field_before_operation(
     try:
         from django.db.migrations.loader import MigrationLoader
 
-        loader = MigrationLoader(None, ignore_no_migrations=True)
+        if loader is None:
+            loader = MigrationLoader(None, ignore_no_migrations=True)
         migration_key = (app_label, migration_name)
 
         if migration_key not in loader.disk_migrations:

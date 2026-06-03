@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from django_safe_migrations.diff import (
+    DiffError,
     _find_git_root,
     get_changed_apps_and_migrations,
     get_changed_migration_files,
@@ -169,6 +170,17 @@ class TestGetChangedMigrationFiles:
         with patch("django_safe_migrations.diff.subprocess.run", side_effect=mock_run):
             with pytest.raises(DiffError, match="git is not installed"):
                 get_changed_migration_files("main")
+
+    def test_rejects_ref_starting_with_dash(self):
+        """A base ref starting with '-' is rejected before any git call.
+
+        Guards against argument injection (e.g. ``--output=<file>``) where a
+        crafted ref would be interpreted as a git option.
+        """
+        with patch("django_safe_migrations.diff.subprocess.run") as mock_run:
+            with pytest.raises(DiffError, match="may not start with"):
+                get_changed_migration_files("--output=/tmp/evil")
+        mock_run.assert_not_called()
 
     def test_uses_custom_base_ref(self, tmp_path):
         """Test that the base_ref parameter is passed to git diff."""
