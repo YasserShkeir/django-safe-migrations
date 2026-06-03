@@ -33,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   in a migration that has several operations of the same type (e.g. multiple
   `RunSQL` ops) no longer suppresses all of them. Baseline files are now
   version 2; legacy (version 1) files keep their previous, broader matching.
+- **SM035**: only treat a `SET lock_timeout` as protection when it runs
+  *before* the DDL (earlier in the SQL list, or in an earlier operation). A
+  lock_timeout set after the DDL no longer silences the rule (false negative).
+- **SM036**: evaluate each SQL statement independently, so a bare
+  `CREATE`/`DROP TABLE` is flagged even when a sibling statement in the same
+  `RunSQL` already uses `IF [NOT] EXISTS` (previously a sibling masked it).
 
 ### Changed
 
@@ -45,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   verifies the git tag matches `__version__` before publishing, and runs
   `twine check` on the built artifacts. A tag no longer publishes to PyPI when
   tests fail or the version is mismatched.
+- **CI**: bump `actions/setup-python` from v5 to v6 (runs on Node 24,
+  resolving the Node 20 runtime deprecation).
 
 ## [0.6.1] - 2026-06-03
 

@@ -710,6 +710,79 @@ class TestRequireLockTimeoutRule:
         assert suggestion is not None
         assert "lock_timeout" in suggestion.lower()
 
+    def test_flags_lock_timeout_after_ddl_in_list(self, mock_migration):
+        """SM035 flags DDL when SET lock_timeout comes AFTER it in the list."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        rule = RequireLockTimeoutRule()
+        operation = migrations.RunSQL(
+            sql=[
+                "ALTER TABLE users ADD COLUMN age INTEGER",
+                "SET lock_timeout = '5s'",
+            ],
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM035"
+
+    def test_allows_lock_timeout_before_ddl_in_list(self, mock_migration):
+        """SM035 stays silent when SET lock_timeout precedes the DDL."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        rule = RequireLockTimeoutRule()
+        operation = migrations.RunSQL(
+            sql=[
+                "SET lock_timeout = '5s'",
+                "ALTER TABLE users ADD COLUMN age INTEGER",
+                "SET lock_timeout = '0'",
+            ],
+            reverse_sql=migrations.RunSQL.noop,
+        )
+
+        assert rule.check(operation, mock_migration) is None
+
+    def test_flags_ddl_when_lock_timeout_is_later_operation(
+        self, mock_migration_factory
+    ):
+        """SM035 flags a DDL op when lock_timeout is set in a LATER op."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        ddl_op = migrations.RunSQL(
+            sql="ALTER TABLE users ADD COLUMN age INTEGER",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        lock_op = migrations.RunSQL(
+            sql="SET lock_timeout = '5s'", reverse_sql=migrations.RunSQL.noop
+        )
+        migration = mock_migration_factory([ddl_op, lock_op])
+
+        rule = RequireLockTimeoutRule()
+        issue = rule.check(ddl_op, migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM035"
+
+    def test_allows_ddl_when_lock_timeout_is_earlier_operation(
+        self, mock_migration_factory
+    ):
+        """SM035 stays silent when an EARLIER op already set lock_timeout."""
+        from django_safe_migrations.rules.run_sql import RequireLockTimeoutRule
+
+        lock_op = migrations.RunSQL(
+            sql="SET lock_timeout = '5s'", reverse_sql=migrations.RunSQL.noop
+        )
+        ddl_op = migrations.RunSQL(
+            sql="ALTER TABLE users ADD COLUMN age INTEGER",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        migration = mock_migration_factory([lock_op, ddl_op])
+
+        rule = RequireLockTimeoutRule()
+
+        assert rule.check(ddl_op, migration) is None
+
 
 class TestPreferIfExistsRule:
     """Tests for PreferIfExistsRule (SM036)."""
@@ -864,3 +937,82 @@ class TestPreferIfExistsRule:
         assert suggestion is not None
         assert "IF NOT EXISTS" in suggestion
         assert "IF EXISTS" in suggestion
+
+    def test_detects_bare_create_among_safe_siblings_list(self, mock_migration):
+        """A bare CREATE TABLE is flagged even if a sibling uses IF NOT EXISTS."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql=[
+                "CREATE TABLE IF NOT EXISTS a (id INTEGER)",
+                "CREATE TABLE b (id INTEGER)",
+            ],
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM036"
+        assert "CREATE TABLE" in issue.message
+
+    def test_detects_bare_create_in_multistatement_string(self, mock_migration):
+        """A bare CREATE TABLE in a ';'-separated string is flagged."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql=(
+                "CREATE TABLE IF NOT EXISTS a (id INTEGER); "
+                "CREATE TABLE b (id INTEGER);"
+            ),
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM036"
+
+    def test_detects_bare_drop_among_safe_siblings(self, mock_migration):
+        """A bare DROP TABLE is flagged even if a sibling uses IF EXISTS."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql="DROP TABLE IF EXISTS a; DROP TABLE b;",
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM036"
+        assert "DROP TABLE" in issue.message
+
+    def test_allows_all_safe_multistatement(self, mock_migration):
+        """No false positive when every statement is defensive."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql=[
+                "CREATE TABLE IF NOT EXISTS a (id INTEGER)",
+                "DROP TABLE IF EXISTS b",
+            ],
+            reverse_sql=migrations.RunSQL.noop,
+        )
+
+        assert rule.check(operation, mock_migration) is None
+
+    def test_handles_sql_list_with_params_tuples(self, mock_migration):
+        """A bare CREATE TABLE in (sql, params) tuple-list form is flagged."""
+        from django_safe_migrations.rules.run_sql import PreferIfExistsRule
+
+        rule = PreferIfExistsRule()
+        operation = migrations.RunSQL(
+            sql=[("CREATE TABLE a (id INTEGER)", None)],
+            reverse_sql=migrations.RunSQL.noop,
+        )
+        issue = rule.check(operation, mock_migration)
+
+        assert issue is not None
+        assert issue.rule_id == "SM036"

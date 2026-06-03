@@ -8,9 +8,9 @@ from django.db import migrations
 
 
 def update_all_users(apps, schema_editor):
-    """Update all users without batching - dangerous for large tables."""
+    """Update every user one by one (intentionally memory-heavy fixture)."""
     User = apps.get_model("testapp", "User")
-    # This should trigger SM026 - .all() without .iterator()
+    # Loads the entire table at once on purpose for the SM026 test
     for user in User.objects.all():
         user.order = 0
         user.save()

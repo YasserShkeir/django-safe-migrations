@@ -1655,7 +1655,7 @@ ______________________________________________________________________
 
 ### What it detects
 
-`RunSQL` operations containing DDL statements (`ALTER TABLE`, `CREATE INDEX`, `DROP INDEX`, etc.) without a `SET lock_timeout` statement in the same migration.
+`RunSQL` operations containing DDL statements (`ALTER TABLE`, `CREATE INDEX`, `DROP INDEX`, etc.) with no `SET lock_timeout` statement running **before** the DDL — either earlier in the same SQL list or in an earlier operation. A `SET lock_timeout` that runs after the DDL gives it no protection and does not silence the rule.
 
 ### Why it's relevant
 
