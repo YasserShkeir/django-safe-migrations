@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fix `--diff` misidentifying app labels when `AppConfig.label` differs from
   the package directory name. The app label is now resolved via Django's app
   registry (`AppConfig.path`) instead of assuming directory name equals label.
+- Standalone CLI: when `DJANGO_SETTINGS_MODULE` is set but `django.setup()`
+  fails (e.g. an import error in settings or an installed app), report the
+  actual error instead of swallowing it and printing a misleading "please set
+  `DJANGO_SETTINGS_MODULE`" message.
 
 ## [0.6.2] - 2026-06-04
 
