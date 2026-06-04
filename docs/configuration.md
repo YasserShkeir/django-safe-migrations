@@ -445,6 +445,26 @@ python manage.py check_migrations --diff
 python manage.py check_migrations --diff develop
 ```
 
+`--diff` compares against your **working tree**, so it also includes uncommitted
+migration edits.
+
+### `--since-commit`
+
+Only check migrations changed in the **committed range** `COMMIT..HEAD`. Unlike
+`--diff`, uncommitted working-tree edits are ignored, which makes it suited to
+incremental CI ("lint only what was committed since the last green build"):
+
+```bash
+# Check everything committed since the last successful pipeline SHA
+python manage.py check_migrations --since-commit "$LAST_GREEN_SHA"
+
+# Check what this branch added on top of main (committed only)
+python manage.py check_migrations --since-commit origin/main
+```
+
+`--diff` and `--since-commit` are mutually exclusive; passing both exits with
+code 2.
+
 ### `--baseline`
 
 Exclude issues that are present in a baseline file:

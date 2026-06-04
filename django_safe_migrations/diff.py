@@ -27,36 +27,40 @@ class DiffError(Exception):
     pass
 
 
-def get_changed_migration_files(base_ref: str = "main") -> list[str]:
-    """Get migration files changed since *base_ref*.
+def _run_git_diff_names(diff_args: list[str]) -> list[str]:
+    """Run ``git diff --name-only`` with *diff_args* and return migration files.
 
-    Uses ``git diff --name-only`` to find Python files under any
-    ``migrations/`` directory that have been added or modified.
+    Shared plumbing for working-tree diffs (``--diff``) and committed-range
+    diffs (``--since-commit``). Filters the output to Python files under any
+    ``migrations/`` directory that still exist on disk.
 
     Args:
-        base_ref: Git ref to diff against (branch, tag, or commit).
+        diff_args: Extra arguments passed to ``git diff`` after the standard
+            ``--name-only --diff-filter=ACMR`` (e.g. ``["main"]`` or
+            ``["abc123..HEAD"]``).
 
     Returns:
         List of absolute paths to changed migration files.
 
     Raises:
-        DiffError: If the git ref does not exist or git command fails.
+        DiffError: If an arg looks like a git option, or git fails / is absent.
     """
-    # Reject refs that could be interpreted as git options (argument
-    # injection, e.g. ``--output=<file>`` which would make git write to an
-    # arbitrary path). A leading dash is never valid in a branch/tag/commit.
-    if base_ref.startswith("-"):
-        raise DiffError(f"Invalid base ref '{base_ref}': refs may not start with '-'.")
+    # Reject args that could be interpreted as git options (argument injection,
+    # e.g. ``--output=<file>`` which would make git write to an arbitrary path).
+    # A leading dash is never valid in a branch/tag/commit or a ``A..B`` range.
+    for arg in diff_args:
+        if arg.startswith("-"):
+            raise DiffError(f"Invalid git ref '{arg}': refs may not start with '-'.")
     try:
         result = subprocess.run(  # nosec B603 B607
-            ["git", "diff", "--name-only", "--diff-filter=ACMR", base_ref],
+            ["git", "diff", "--name-only", "--diff-filter=ACMR", *diff_args],
             capture_output=True,
             text=True,
             check=True,
             cwd=_find_git_root(),
         )
     except subprocess.CalledProcessError as e:
-        msg = f"Could not run git diff against '{base_ref}': {e}"
+        msg = f"Could not run git diff ({' '.join(diff_args)}): {e}"
         if e.stderr:
             msg += f"\ngit stderr: {e.stderr.strip()}"
         logger.error(msg)
@@ -79,27 +83,68 @@ def get_changed_migration_files(base_ref: str = "main") -> list[str]:
             if os.path.exists(abs_path):
                 changed.append(abs_path)
 
+    return changed
+
+
+def get_changed_migration_files(base_ref: str = "main") -> list[str]:
+    """Get migration files changed since *base_ref* (vs the working tree).
+
+    Uses ``git diff --name-only`` to find Python files under any
+    ``migrations/`` directory that have been added or modified relative to
+    *base_ref*, including uncommitted working-tree changes.
+
+    Args:
+        base_ref: Git ref to diff against (branch, tag, or commit).
+
+    Returns:
+        List of absolute paths to changed migration files.
+
+    Raises:
+        DiffError: If the git ref does not exist or git command fails.
+    """
+    changed = _run_git_diff_names([base_ref])
     logger.debug("Found %d changed migration file(s) since %s", len(changed), base_ref)
     return changed
 
 
-def get_changed_apps_and_migrations(
-    base_ref: str = "main",
-) -> list[tuple[str, str]]:
-    """Get (app_label, migration_name) pairs for changed migrations.
+def get_committed_migration_files(since_commit: str) -> list[str]:
+    """Get migration files committed since *since_commit* (excludes working tree).
 
-    Parses the file paths to extract app labels and migration names.
-    The app label is resolved via Django's app registry so that apps
-    whose ``AppConfig.label`` differs from their package directory name
-    are handled correctly.
+    Unlike :func:`get_changed_migration_files`, this diffs the committed range
+    ``<since_commit>..HEAD`` so that uncommitted edits are ignored. This suits
+    incremental CI ("lint only what was committed since the last green build").
 
     Args:
-        base_ref: Git ref to diff against.
+        since_commit: Git commit/ref marking the lower bound (exclusive).
 
     Returns:
-        List of (app_label, migration_name) tuples.
+        List of absolute paths to migration files changed in the range.
+
+    Raises:
+        DiffError: If *since_commit* is empty/invalid or git command fails.
     """
-    files = get_changed_migration_files(base_ref)
+    if not since_commit or not since_commit.strip():
+        raise DiffError("--since-commit requires a non-empty commit/ref.")
+    changed = _run_git_diff_names([f"{since_commit}..HEAD"])
+    logger.debug(
+        "Found %d migration file(s) committed since %s", len(changed), since_commit
+    )
+    return changed
+
+
+def _files_to_app_migrations(files: list[str]) -> list[tuple[str, str]]:
+    """Map changed migration file paths to (app_label, migration_name) pairs.
+
+    The app label is resolved via Django's app registry so that apps whose
+    ``AppConfig.label`` differs from their package directory name are handled
+    correctly.
+
+    Args:
+        files: Absolute paths to changed migration files.
+
+    Returns:
+        List of (app_label, migration_name) tuples (``__init__`` skipped).
+    """
     result: list[tuple[str, str]] = []
 
     # Map resolved app package paths to their registered labels once. Using the
@@ -128,6 +173,39 @@ def get_changed_apps_and_migrations(
 
     logger.debug("Changed migrations: %s", result)
     return result
+
+
+def get_changed_apps_and_migrations(
+    base_ref: str = "main",
+) -> list[tuple[str, str]]:
+    """Get (app_label, migration_name) pairs for migrations changed vs *base_ref*.
+
+    Includes uncommitted working-tree changes (mirrors ``--diff``).
+
+    Args:
+        base_ref: Git ref to diff against.
+
+    Returns:
+        List of (app_label, migration_name) tuples.
+    """
+    return _files_to_app_migrations(get_changed_migration_files(base_ref))
+
+
+def get_committed_apps_and_migrations(
+    since_commit: str,
+) -> list[tuple[str, str]]:
+    """Get (app_label, migration_name) pairs for migrations committed since a ref.
+
+    Diffs the committed range ``<since_commit>..HEAD``; uncommitted edits are
+    ignored (mirrors ``--since-commit``).
+
+    Args:
+        since_commit: Git commit/ref marking the lower bound (exclusive).
+
+    Returns:
+        List of (app_label, migration_name) tuples.
+    """
+    return _files_to_app_migrations(get_committed_migration_files(since_commit))
 
 
 def _find_git_root() -> str:

@@ -535,6 +535,18 @@ check-migrations:
     - python manage.py check_migrations --diff origin/main --format=gitlab > gl-code-quality-report.json
 ```
 
+For pipelines that record the last successful commit, `--since-commit` checks
+only what was **committed** in the range `COMMIT..HEAD` (ignoring any
+uncommitted working-tree edits):
+
+```yaml
+# GitHub Actions - lint only migrations committed since the last green build
+- name: Check migrations since last release
+  run: python manage.py check_migrations --since-commit "$LAST_GREEN_SHA" --format=github
+```
+
+`--diff` and `--since-commit` are mutually exclusive.
+
 ### Baseline for Existing Projects
 
 When adopting django-safe-migrations on an existing project, generate a baseline to suppress known issues:

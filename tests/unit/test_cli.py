@@ -97,3 +97,37 @@ class TestMain:
 
         assert rc == 1
         assert "DJANGO_SETTINGS_MODULE" in err
+
+    def test_diff_and_since_commit_mutually_exclusive(self, monkeypatch, capsys):
+        """Passing both --diff and --since-commit returns exit code 2."""
+        monkeypatch.setattr(cli, "setup_django", lambda: True)
+
+        rc = cli.main(["--diff", "main", "--since-commit", "abc123"])
+        err = capsys.readouterr().err
+
+        assert rc == 2
+        assert "only one of" in err.lower()
+
+    def test_since_commit_uses_committed_range(self, monkeypatch, capsys):
+        """--since-commit routes through get_committed_apps_and_migrations."""
+        monkeypatch.setattr(cli, "setup_django", lambda: True)
+
+        from django_safe_migrations import diff as diff_mod
+
+        called = {}
+
+        def fake_committed(commit):
+            called["commit"] = commit
+            return []
+
+        monkeypatch.setattr(
+            diff_mod, "get_committed_apps_and_migrations", fake_committed
+        )
+
+        rc = cli.main(["--since-commit", "abc123", "--format=json"])
+        out = capsys.readouterr().out
+
+        assert rc == 0
+        assert called["commit"] == "abc123"
+        # No changed migrations -> empty issue set.
+        assert json.loads(out)["total"] == 0
