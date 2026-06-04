@@ -102,6 +102,16 @@ def get_changed_apps_and_migrations(
     files = get_changed_migration_files(base_ref)
     result: list[tuple[str, str]] = []
 
+    # Map resolved app package paths to their registered labels once. Using the
+    # registry label (rather than assuming directory name == label) handles
+    # custom ``AppConfig.label`` values; resolving paths makes the lookup robust
+    # to symlinks / non-normalized roots, and building the dict once keeps this
+    # O(files) instead of O(files x app_configs).
+    path_to_label = {
+        Path(app_config.path).resolve(): app_config.label
+        for app_config in django_apps.get_app_configs()
+    }
+
     for filepath in files:
         path = Path(filepath)
         # Expected: .../app_name/migrations/0001_initial.py
@@ -112,13 +122,7 @@ def get_changed_apps_and_migrations(
         migrations_dir = path.parent  # .../app_name/migrations/
         app_dir = migrations_dir.parent  # .../app_name/
 
-        # Prefer the app registry label in case AppConfig.label differs from
-        # the package directory name (e.g. namespaced apps or custom labels).
-        app_label = app_dir.name
-        for app_config in django_apps.get_app_configs():
-            if Path(app_config.path) == app_dir:
-                app_label = app_config.label
-                break
+        app_label = path_to_label.get(app_dir.resolve(), app_dir.name)
 
         result.append((app_label, migration_name))
 
