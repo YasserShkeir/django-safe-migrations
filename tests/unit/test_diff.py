@@ -302,6 +302,50 @@ class TestGetChangedAppsAndMigrations:
 
         mock_fn.assert_called_once_with("feature-branch")
 
+    def test_resolves_custom_app_label(self, tmp_path):
+        """Test that a custom AppConfig.label is used instead of the directory name."""
+        app_dir = tmp_path / "billing_app"
+        migrations_dir = app_dir / "migrations"
+        migrations_dir.mkdir(parents=True)
+
+        changed_files = [str(migrations_dir / "0001_initial.py")]
+
+        mock_app_config = MagicMock()
+        mock_app_config.path = str(app_dir)
+        mock_app_config.label = "billing"  # label differs from dir name "billing_app"
+
+        with (
+            patch(
+                "django_safe_migrations.diff.get_changed_migration_files",
+                return_value=changed_files,
+            ),
+            patch(
+                "django_safe_migrations.diff.django_apps.get_app_configs",
+                return_value=[mock_app_config],
+            ),
+        ):
+            result = get_changed_apps_and_migrations("main")
+
+        assert result == [("billing", "0001_initial")]
+
+    def test_falls_back_to_dir_name_when_app_not_registered(self):
+        """Test that the directory name is used when no app registry match exists."""
+        changed_files = ["/project/unregistered_app/migrations/0001_initial.py"]
+
+        with (
+            patch(
+                "django_safe_migrations.diff.get_changed_migration_files",
+                return_value=changed_files,
+            ),
+            patch(
+                "django_safe_migrations.diff.django_apps.get_app_configs",
+                return_value=[],
+            ),
+        ):
+            result = get_changed_apps_and_migrations("main")
+
+        assert result == [("unregistered_app", "0001_initial")]
+
     def test_multiple_migrations_same_app(self):
         """Test handling multiple migrations from the same app."""
         changed_files = [

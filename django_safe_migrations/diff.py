@@ -16,6 +16,8 @@ import os
 import subprocess  # nosec B404
 from pathlib import Path
 
+from django.apps import apps as django_apps
+
 logger = logging.getLogger("django_safe_migrations")
 
 
@@ -87,6 +89,9 @@ def get_changed_apps_and_migrations(
     """Get (app_label, migration_name) pairs for changed migrations.
 
     Parses the file paths to extract app labels and migration names.
+    The app label is resolved via Django's app registry so that apps
+    whose ``AppConfig.label`` differs from their package directory name
+    are handled correctly.
 
     Args:
         base_ref: Git ref to diff against.
@@ -96,6 +101,16 @@ def get_changed_apps_and_migrations(
     """
     files = get_changed_migration_files(base_ref)
     result: list[tuple[str, str]] = []
+
+    # Map resolved app package paths to their registered labels once. Using the
+    # registry label (rather than assuming directory name == label) handles
+    # custom ``AppConfig.label`` values; resolving paths makes the lookup robust
+    # to symlinks / non-normalized roots, and building the dict once keeps this
+    # O(files) instead of O(files x app_configs).
+    path_to_label = {
+        Path(app_config.path).resolve(): app_config.label
+        for app_config in django_apps.get_app_configs()
+    }
 
     for filepath in files:
         path = Path(filepath)
@@ -107,8 +122,7 @@ def get_changed_apps_and_migrations(
         migrations_dir = path.parent  # .../app_name/migrations/
         app_dir = migrations_dir.parent  # .../app_name/
 
-        # The app label is typically the directory name
-        app_label = app_dir.name
+        app_label = path_to_label.get(app_dir.resolve(), app_dir.name)
 
         result.append((app_label, migration_name))
 
