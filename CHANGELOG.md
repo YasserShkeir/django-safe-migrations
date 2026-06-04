@@ -22,6 +22,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   database vendor so you can develop on SQLite but lint for PostgreSQL.
 - **`--warnings-as-errors` / `WARNINGS_AS_ERRORS`.** Promote specific
   warning-level rules to build failures (more granular than `--fail-on-warning`).
+- **Migrate-blocking system check (`BLOCK_UNSAFE`).** When enabled, an opt-in
+  Django system check reports ERROR-level migration issues, so `migrate` (and
+  other commands) refuse to run while unsafe migrations exist. Disabled by
+  default and guarded so it never crashes a command.
+- **Lint on `makemigrations`.** Installing the app makes `makemigrations`
+  analyse newly generated migrations and warn about safety issues. It is
+  warn-only by default (`--lint-strict` to fail, `--no-lint` to skip) and can
+  never break `makemigrations` itself.
 - **SM037** `direct_model_import_in_runpython` (INFO): a RunPython function that
   imports a model directly instead of using `apps.get_model()` breaks on a
   fresh database.

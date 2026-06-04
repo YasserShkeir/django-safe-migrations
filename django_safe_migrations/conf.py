@@ -186,6 +186,7 @@ DEFAULTS: dict[str, Any] = {
     "EXTRA_RULES": [],  # Custom rule class paths to load
     "DATABASE_VENDOR": None,  # Override auto-detected DB vendor
     "WARNINGS_AS_ERRORS": [],  # Rule IDs whose warnings fail the build
+    "BLOCK_UNSAFE": False,  # Block migrate via system check on ERROR issues
 }
 
 
@@ -246,6 +247,11 @@ def get_warnings_as_errors() -> list[str]:
     """Get the list of rule IDs whose warnings should fail the build."""
     value = get_config().get("WARNINGS_AS_ERRORS", [])
     return list(value) if value else []
+
+
+def get_block_unsafe() -> bool:
+    """Get whether a system check should block migrate on ERROR-level issues."""
+    return bool(get_config().get("BLOCK_UNSAFE", False))
 
 
 def get_disabled_rules() -> list[str]:

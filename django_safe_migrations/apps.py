@@ -11,5 +11,9 @@ class DjangoSafeMigrationsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
 
     def ready(self) -> None:
-        """Perform initialization when the app is ready."""
-        pass
+        """Register the (opt-in) migration-safety system check."""
+        from django.core.checks import register
+
+        from django_safe_migrations.checks import check_migration_safety
+
+        register(check_migration_safety, "migrations")
