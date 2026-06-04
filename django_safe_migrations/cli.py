@@ -221,6 +221,19 @@ Documentation: https://django-safe-migrations.readthedocs.io/
         action="store_true",
         help="Watch migration files for changes and re-run analysis",
     )
+    parser.add_argument(
+        "--database-vendor",
+        choices=["postgresql", "mysql", "sqlite", "mariadb"],
+        default=None,
+        help="Override the detected database vendor for rule analysis",
+    )
+    parser.add_argument(
+        "--warnings-as-errors",
+        type=str,
+        default=None,
+        metavar="SM002,SM003",
+        help="Comma-separated rule IDs whose warnings should fail (exit 1)",
+    )
 
     args: Namespace = parser.parse_args(argv)
 
@@ -242,7 +255,12 @@ Documentation: https://django-safe-migrations.readthedocs.io/
 
     # Import after Django setup
     from django_safe_migrations.analyzer import MigrationAnalyzer
-    from django_safe_migrations.conf import get_fail_on_warning, log_config_warnings
+    from django_safe_migrations.conf import (
+        get_database_vendor,
+        get_fail_on_warning,
+        get_warnings_as_errors,
+        log_config_warnings,
+    )
     from django_safe_migrations.reporters import get_reporter
     from django_safe_migrations.rules.base import Issue, Severity
 
@@ -270,7 +288,14 @@ Documentation: https://django-safe-migrations.readthedocs.io/
         exclude_apps = list(set(exclude_apps + django_apps))
 
     # Create analyzer
-    analyzer = MigrationAnalyzer(verbose=args.verbose)
+    db_vendor_override = args.database_vendor or get_database_vendor()
+    analyzer = MigrationAnalyzer(db_vendor=db_vendor_override, verbose=args.verbose)
+
+    warnings_as_errors = set(get_warnings_as_errors())
+    if args.warnings_as_errors:
+        warnings_as_errors.update(
+            rid.strip() for rid in args.warnings_as_errors.split(",") if rid.strip()
+        )
 
     # Collect issues
     issues: list[Issue] = []
@@ -354,8 +379,9 @@ Documentation: https://django-safe-migrations.readthedocs.io/
     fail_on_warning = args.fail_on_warning or get_fail_on_warning()
     errors = [i for i in issues if i.severity == Severity.ERROR]
     warnings = [i for i in issues if i.severity == Severity.WARNING]
+    promoted = [i for i in warnings if i.rule_id in warnings_as_errors]
 
-    if errors:
+    if errors or promoted:
         return 1
     elif warnings and fail_on_warning:
         return 1

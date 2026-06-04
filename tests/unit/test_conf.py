@@ -1315,3 +1315,67 @@ class TestConfigurationEdgeCases:
             warnings = validate_config()
             # Should have at least 4 warnings
             assert len(warnings) >= 4
+
+
+class TestV070Config:
+    """Tests for v0.7.0 config: pyproject, DATABASE_VENDOR, WARNINGS_AS_ERRORS."""
+
+    def test_read_pyproject_section(self, tmp_path):
+        """A [tool.django_safe_migrations] section is parsed and upper-cased."""
+        from django_safe_migrations.conf import _read_pyproject_section
+
+        f = tmp_path / "pyproject.toml"
+        f.write_text(
+            "[tool.django_safe_migrations]\n"
+            'disabled_rules = ["SM006"]\n'
+            'database_vendor = "postgresql"\n'
+        )
+        cfg = _read_pyproject_section(str(f))
+        assert cfg == {
+            "DISABLED_RULES": ["SM006"],
+            "DATABASE_VENDOR": "postgresql",
+        }
+
+    def test_read_pyproject_missing(self):
+        """A missing pyproject file yields an empty config."""
+        from django_safe_migrations.conf import _read_pyproject_section
+
+        assert _read_pyproject_section("/no/such/pyproject.toml") == {}
+
+    def test_settings_win_over_pyproject(self, monkeypatch):
+        """Django settings take precedence over pyproject values."""
+        from django.test import override_settings
+
+        from django_safe_migrations import conf
+
+        monkeypatch.setattr(
+            conf,
+            "load_pyproject_config",
+            lambda: {"DISABLED_RULES": ["SM006"], "DATABASE_VENDOR": "mysql"},
+        )
+        with override_settings(SAFE_MIGRATIONS={"DATABASE_VENDOR": "postgresql"}):
+            cfg = conf.get_config()
+            assert cfg["DATABASE_VENDOR"] == "postgresql"  # settings win
+            assert cfg["DISABLED_RULES"] == ["SM006"]  # pyproject-only key kept
+
+    def test_get_database_vendor(self):
+        """get_database_vendor reads DATABASE_VENDOR, None when unset."""
+        from django.test import override_settings
+
+        from django_safe_migrations.conf import get_database_vendor
+
+        with override_settings(SAFE_MIGRATIONS={"DATABASE_VENDOR": "mysql"}):
+            assert get_database_vendor() == "mysql"
+        with override_settings(SAFE_MIGRATIONS={}):
+            assert get_database_vendor() is None
+
+    def test_get_warnings_as_errors(self):
+        """get_warnings_as_errors reads the WARNINGS_AS_ERRORS list."""
+        from django.test import override_settings
+
+        from django_safe_migrations.conf import get_warnings_as_errors
+
+        with override_settings(SAFE_MIGRATIONS={"WARNINGS_AS_ERRORS": ["SM002"]}):
+            assert get_warnings_as_errors() == ["SM002"]
+        with override_settings(SAFE_MIGRATIONS={}):
+            assert get_warnings_as_errors() == []

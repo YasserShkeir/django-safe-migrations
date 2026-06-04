@@ -1630,3 +1630,64 @@ class TestSquashedMigrations:
             if "0027_squashed" in i.get("migration_name", "")
         ]
         assert len(squash_issues) > 0, "Squashed migration 0027 should produce issues"
+
+
+class TestV070ConfigFeatures:
+    """Integration tests for --database-vendor and --warnings-as-errors."""
+
+    def test_warnings_as_errors_promotes_to_failure(self):
+        """A warning whose rule is in --warnings-as-errors causes exit 1."""
+        from unittest.mock import patch
+
+        from django_safe_migrations.rules.base import Issue, Severity
+
+        warning = Issue(
+            rule_id="SM002", severity=Severity.WARNING, operation="op", message="w"
+        )
+        out = StringIO()
+        with patch(
+            "django_safe_migrations.analyzer.MigrationAnalyzer.analyze_all",
+            return_value=[warning],
+        ):
+            with pytest.raises(SystemExit) as exc:
+                call_command("check_migrations", warnings_as_errors="SM002", stdout=out)
+        assert exc.value.code == 1
+
+    def test_warning_not_promoted_exits_zero(self):
+        """A warning not listed in --warnings-as-errors does not fail."""
+        from unittest.mock import patch
+
+        from django_safe_migrations.rules.base import Issue, Severity
+
+        warning = Issue(
+            rule_id="SM002", severity=Severity.WARNING, operation="op", message="w"
+        )
+        out = StringIO()
+        with patch(
+            "django_safe_migrations.analyzer.MigrationAnalyzer.analyze_all",
+            return_value=[warning],
+        ):
+            try:
+                call_command("check_migrations", warnings_as_errors="SM999", stdout=out)
+                code = 0
+            except SystemExit as e:
+                code = e.code
+        assert code == 0
+
+    def test_database_vendor_override_activates_postgres_rules(self):
+        """--database-vendor=postgresql activates PostgreSQL-only rules."""
+        out = StringIO()
+        try:
+            call_command(
+                "check_migrations",
+                "testapp",
+                format="json",
+                database_vendor="postgresql",
+                stdout=out,
+            )
+        except SystemExit:
+            pass
+        data = json.loads(out.getvalue())
+        rule_ids = {i["rule_id"] for i in data["issues"]}
+        # At least one PostgreSQL-only rule should fire under the override.
+        assert rule_ids & {"SM010", "SM011", "SM031", "SM005", "SM013"}

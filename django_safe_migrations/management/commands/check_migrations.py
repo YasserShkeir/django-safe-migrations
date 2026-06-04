@@ -11,7 +11,9 @@ from django.core.management.base import BaseCommand, CommandParser
 from django_safe_migrations.analyzer import MigrationAnalyzer
 from django_safe_migrations.conf import (
     get_category_for_rule,
+    get_database_vendor,
     get_fail_on_warning,
+    get_warnings_as_errors,
     log_config_warnings,
 )
 from django_safe_migrations.reporters import get_reporter
@@ -132,6 +134,19 @@ class Command(BaseCommand):
             action="store_true",
             help="Watch migration files for changes and re-run analysis",
         )
+        parser.add_argument(
+            "--database-vendor",
+            choices=["postgresql", "mysql", "sqlite", "mariadb"],
+            default=None,
+            help="Override the detected database vendor for rule analysis",
+        )
+        parser.add_argument(
+            "--warnings-as-errors",
+            type=str,
+            default=None,
+            metavar="SM002,SM003",
+            help="Comma-separated rule IDs whose warnings should fail (exit 1)",
+        )
 
     def list_rules(self, output_format: str) -> None:
         """List all available rules.
@@ -238,6 +253,19 @@ class Command(BaseCommand):
         include_django_apps = options["include_django_apps"]
         verbose = options.get("verbose", False)
 
+        # Database-vendor override: CLI flag, else DATABASE_VENDOR setting, else
+        # auto-detect (None).
+        db_vendor_override = options.get("database_vendor") or get_database_vendor()
+
+        # Rule IDs whose warnings should fail the build (CLI + setting).
+        warnings_as_errors = set(get_warnings_as_errors())
+        if options.get("warnings_as_errors"):
+            warnings_as_errors.update(
+                rid.strip()
+                for rid in options["warnings_as_errors"].split(",")
+                if rid.strip()
+            )
+
         # Build exclude list by merging CLI args with settings-level EXCLUDED_APPS
         from django_safe_migrations.conf import get_excluded_apps
 
@@ -256,7 +284,7 @@ class Command(BaseCommand):
             exclude_apps = list(set(exclude_apps + django_apps))
 
         # Create analyzer
-        analyzer = MigrationAnalyzer(verbose=verbose)
+        analyzer = MigrationAnalyzer(db_vendor=db_vendor_override, verbose=verbose)
 
         # Collect issues
         issues: list[Issue] = []
@@ -380,8 +408,9 @@ class Command(BaseCommand):
         # Determine exit code
         errors = [i for i in issues if i.severity == Severity.ERROR]
         warnings = [i for i in issues if i.severity == Severity.WARNING]
+        promoted = [i for i in warnings if i.rule_id in warnings_as_errors]
 
-        if errors:
+        if errors or promoted:
             sys.exit(1)
         elif warnings and fail_on_warning:
             sys.exit(1)
