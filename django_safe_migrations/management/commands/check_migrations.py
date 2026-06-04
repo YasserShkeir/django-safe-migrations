@@ -56,7 +56,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--format",
-            choices=["console", "json", "github", "gitlab", "sarif"],
+            choices=["console", "json", "github", "github-pr", "gitlab", "sarif"],
             default="console",
             help="Output format (default: console)",
         )

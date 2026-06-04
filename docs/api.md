@@ -225,6 +225,23 @@ reporter = SarifReporter()
 reporter.report(issues)
 ```
 
+### GitHubPRReporter
+
+Outputs a Markdown summary (grouped by migration file) suitable for posting as a
+single pull-request comment. It performs no network I/O — a CI step posts the
+rendered body, e.g. `gh pr comment "$PR" --body-file comment.md`.
+
+```python
+from django_safe_migrations import MigrationAnalyzer
+from django_safe_migrations.reporters.github_pr import GitHubPRReporter
+
+analyzer = MigrationAnalyzer()
+issues = analyzer.analyze_all()
+
+reporter = GitHubPRReporter()
+reporter.report(issues)
+```
+
 ### Using get_reporter()
 
 ```python
@@ -234,6 +251,7 @@ from django_safe_migrations.reporters import get_reporter
 reporter = get_reporter("console", show_suggestions=True)
 reporter = get_reporter("json")
 reporter = get_reporter("github")
+reporter = get_reporter("github-pr")
 reporter = get_reporter("gitlab")
 reporter = get_reporter("sarif")
 ```

@@ -118,6 +118,9 @@ python manage.py check_migrations --fail-on-warning
 # GitLab Code Quality output
 python manage.py check_migrations --format=gitlab
 
+# Markdown summary to post as a PR comment
+python manage.py check_migrations --format=github-pr > comment.md
+
 # Diff mode - only check changed migrations
 python manage.py check_migrations --diff
 python manage.py check_migrations --diff main
@@ -232,27 +235,27 @@ repos:
 
 ### Command Options
 
-| Option                     | Description                                                   |
-| -------------------------- | ------------------------------------------------------------- |
-| `--format`                 | Output format: `console`, `json`, `github`, `gitlab`, `sarif` |
-| `--output`, `-o`           | Output file path (defaults to stdout)                         |
-| `--fail-on-warning`        | Exit with error code on warnings                              |
-| `--new-only`               | Only check unapplied migrations                               |
-| `--no-suggestions`         | Hide fix suggestions                                          |
-| `--exclude-apps`           | Apps to exclude from checking                                 |
-| `--include-django-apps`    | Include Django's built-in apps                                |
-| `--diff [BASE_REF]`        | Only check migrations changed since BASE_REF (default: main)  |
-| `--since-commit COMMIT`    | Only check migrations committed in COMMIT..HEAD (no worktree) |
-| `--cache`                  | Cache results to speed up repeat runs (`.dsm_cache.json`)     |
-| `--cache-file PATH`        | Use a custom cache file path (implies `--cache`)              |
-| `--check-reverse`          | Also check the rollback path for destructive ops (RV0xx)      |
-| `--classify-phase`         | Classify migrations as expand/contract/data/mixed and exit    |
-| `--baseline FILE`          | Exclude issues present in baseline file                       |
-| `--generate-baseline FILE` | Generate baseline file from current issues                    |
-| `--interactive`            | Interactively review each issue                               |
-| `--verbose`                | Show progress information during analysis                     |
-| `--watch`                  | Watch migration files and re-run on changes                   |
-| `--list-rules`             | List all available rules and exit                             |
+| Option                     | Description                                                         |
+| -------------------------- | ------------------------------------------------------------------- |
+| `--format`                 | Output: `console`, `json`, `github`, `github-pr`, `gitlab`, `sarif` |
+| `--output`, `-o`           | Output file path (defaults to stdout)                               |
+| `--fail-on-warning`        | Exit with error code on warnings                                    |
+| `--new-only`               | Only check unapplied migrations                                     |
+| `--no-suggestions`         | Hide fix suggestions                                                |
+| `--exclude-apps`           | Apps to exclude from checking                                       |
+| `--include-django-apps`    | Include Django's built-in apps                                      |
+| `--diff [BASE_REF]`        | Only check migrations changed since BASE_REF (default: main)        |
+| `--since-commit COMMIT`    | Only check migrations committed in COMMIT..HEAD (no worktree)       |
+| `--cache`                  | Cache results to speed up repeat runs (`.dsm_cache.json`)           |
+| `--cache-file PATH`        | Use a custom cache file path (implies `--cache`)                    |
+| `--check-reverse`          | Also check the rollback path for destructive ops (RV0xx)            |
+| `--classify-phase`         | Classify migrations as expand/contract/data/mixed and exit          |
+| `--baseline FILE`          | Exclude issues present in baseline file                             |
+| `--generate-baseline FILE` | Generate baseline file from current issues                          |
+| `--interactive`            | Interactively review each issue                                     |
+| `--verbose`                | Show progress information during analysis                           |
+| `--watch`                  | Watch migration files and re-run on changes                         |
+| `--list-rules`             | List all available rules and exit                                   |
 
 ### Programmatic Usage
 

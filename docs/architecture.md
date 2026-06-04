@@ -42,7 +42,8 @@ This document describes the high-level architecture of django-safe-migrations.
                     ▼             ▼             ▼
               ┌────────────────────────────────────┐
               │ Reporters                          │
-              │ (console/json/github/gitlab/sarif) │
+              │ (console/json/github/github-pr/    │
+              │  gitlab/sarif)                     │
               └────────────────────────────────────┘
 ```
 
@@ -479,7 +480,8 @@ django_safe_migrations/
 │   ├── base.py              # BaseReporter
 │   ├── console.py           # ConsoleReporter
 │   ├── json_reporter.py     # JsonReporter
-│   ├── github.py            # GitHubReporter
+│   ├── github.py            # GitHubReporter (workflow annotations)
+│   ├── github_pr.py         # GitHubPRReporter (Markdown PR comment)
 │   ├── gitlab.py            # GitLabReporter (GitLab Code Quality)
 │   └── sarif.py             # SarifReporter (SARIF code scanning)
 └── rules/
