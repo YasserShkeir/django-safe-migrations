@@ -116,6 +116,22 @@ class BaseRule(ABC):
         """
         raise NotImplementedError
 
+    def check_migration(self, migration: Migration) -> list[Issue]:
+        """Check a whole migration at once (migration-level rules).
+
+        Called once per migration by the analyzer, in addition to the
+        per-operation ``check()``. Override this for rules that reason about
+        all operations together (e.g. mixing schema and data operations).
+        The default returns no issues.
+
+        Args:
+            migration: The migration to check.
+
+        Returns:
+            A list of Issue objects (empty by default).
+        """
+        return []
+
     def get_suggestion(self, operation: Operation) -> Optional[str]:
         """Return a fix suggestion for the operation.
 

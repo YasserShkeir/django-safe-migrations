@@ -39,6 +39,10 @@ from django_safe_migrations.rules.constraints import (
     AlterUniqueTogetherRule,
 )
 from django_safe_migrations.rules.graph import MissingMergeMigrationRule
+from django_safe_migrations.rules.migration_structure import (
+    MixedSchemaAndDataRule,
+    MultipleHeavyOpsSameTableRule,
+)
 from django_safe_migrations.rules.naming import ReservedKeywordColumnRule
 from django_safe_migrations.rules.relations import (
     AddManyToManyRule,
@@ -50,6 +54,7 @@ from django_safe_migrations.rules.remove_field import (
 )
 from django_safe_migrations.rules.run_sql import (
     ConstraintMissingNotValidRule,
+    DirectModelImportInRunPythonRule,
     DropDatabaseInRunSQLRule,
     EnumAddValueInTransactionRule,
     LargeDataMigrationRule,
@@ -120,6 +125,9 @@ __all__ = [
     "DropDatabaseInRunSQLRule",
     "TransactionNestingInRunSQLRule",
     "ConstraintMissingNotValidRule",
+    "DirectModelImportInRunPythonRule",
+    "MixedSchemaAndDataRule",
+    "MultipleHeavyOpsSameTableRule",
     # Functions
     "get_all_rules",
     "get_rules_for_db",
@@ -182,6 +190,9 @@ ALL_RULES: list[type[BaseRule]] = [
     VolatileDefaultWithUniqueRule,  # SM040
     AddStoredGeneratedFieldRule,  # SM041
     AddExclusionConstraintRule,  # SM056
+    DirectModelImportInRunPythonRule,  # SM037
+    MixedSchemaAndDataRule,  # SM038
+    MultipleHeavyOpsSameTableRule,  # SM054
 ]
 
 logger = logging.getLogger("django_safe_migrations")

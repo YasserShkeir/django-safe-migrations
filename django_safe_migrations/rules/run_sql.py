@@ -1048,3 +1048,77 @@ class ConstraintMissingNotValidRule(BaseRule):
                     ),
                 )
         return None
+
+
+def _get_runpython_source(func: object) -> Optional[str]:
+    """Return the dedented source of a RunPython function, or None.
+
+    Mirrors the source-inspection approach used by SM026; returns None when the
+    source is unavailable (lambda, C function, file not on disk).
+    """
+    try:
+        import inspect
+        import textwrap
+
+        return textwrap.dedent(inspect.getsource(func))  # type: ignore[arg-type]
+    except (OSError, TypeError):
+        return None
+
+
+class DirectModelImportInRunPythonRule(BaseRule):
+    """Detect a RunPython function that imports a model directly.
+
+    Using ``from app.models import MyModel`` (or ``import app.models``) inside a
+    RunPython function uses the *current* model class, not the historical
+    version at migration time. It works at first but breaks when the migration
+    later runs against a fresh database. The safe approach is
+    ``apps.get_model('app', 'MyModel')``.
+    """
+
+    rule_id = "SM037"
+    severity = Severity.INFO
+    description = "RunPython should use apps.get_model(), not a direct model import"
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Flag a RunPython function with an inline model import."""
+        if not isinstance(operation, migrations.RunPython):
+            return None
+
+        funcs = (
+            getattr(operation, "code", None),
+            getattr(operation, "reverse_code", None),
+        )
+        for func in funcs:
+            if func is None:
+                continue
+            source = _get_runpython_source(func)
+            if source is None:
+                continue
+
+            has_model_import = bool(
+                re.search(
+                    r"^\s*from\s+[\w.]+\.models\b\s+import\b", source, re.MULTILINE
+                )
+                or re.search(r"^\s*import\s+[\w.]+\.models\b", source, re.MULTILINE)
+            )
+            # Functions that use apps.get_model are doing it right; only flag a
+            # direct import when get_model is not used, to keep noise low.
+            if has_model_import and "apps.get_model" not in source:
+                func_name = getattr(func, "__name__", "function")
+                return self.create_issue(
+                    operation=operation,
+                    migration=migration,
+                    message=(
+                        f"RunPython function '{func_name}' imports a model "
+                        "directly instead of using apps.get_model(). This uses "
+                        "the current model, not the historical one, and breaks "
+                        "on a fresh database. Use "
+                        "apps.get_model('app_label', 'ModelName')."
+                    ),
+                )
+        return None

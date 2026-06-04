@@ -1164,3 +1164,48 @@ class TestConstraintMissingNotValidRule:
         rule = ConstraintMissingNotValidRule()
         assert rule.applies_to_db("postgresql") is True
         assert rule.applies_to_db("mysql") is False
+
+
+class TestDirectModelImportInRunPythonRule:
+    """Tests for DirectModelImportInRunPythonRule (SM037)."""
+
+    def test_flags_direct_model_import(self, mock_migration):
+        """A RunPython function importing a model directly is flagged."""
+        from django_safe_migrations.rules.run_sql import (
+            DirectModelImportInRunPythonRule,
+        )
+
+        def forward(apps, schema_editor):
+            from myapp.models import User  # noqa: F401  (never executed)
+
+            User.objects.all().update(active=True)
+
+        rule = DirectModelImportInRunPythonRule()
+        op = migrations.RunPython(forward, migrations.RunPython.noop)
+        issue = rule.check(op, mock_migration)
+        assert issue is not None
+        assert issue.rule_id == "SM037"
+
+    def test_allows_apps_get_model(self, mock_migration):
+        """A RunPython function using apps.get_model is not flagged."""
+        from django_safe_migrations.rules.run_sql import (
+            DirectModelImportInRunPythonRule,
+        )
+
+        def forward(apps, schema_editor):
+            user = apps.get_model("myapp", "User")
+            user.objects.all().update(active=True)
+
+        rule = DirectModelImportInRunPythonRule()
+        op = migrations.RunPython(forward, migrations.RunPython.noop)
+        assert rule.check(op, mock_migration) is None
+
+    def test_ignores_non_runpython(self, mock_migration):
+        """Non-RunPython operations are ignored."""
+        from django_safe_migrations.rules.run_sql import (
+            DirectModelImportInRunPythonRule,
+        )
+
+        rule = DirectModelImportInRunPythonRule()
+        op = migrations.RunSQL("SELECT 1")
+        assert rule.check(op, mock_migration) is None
