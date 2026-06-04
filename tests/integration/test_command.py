@@ -169,6 +169,16 @@ class TestOutputFormats:
         # GitHub format should use ::error:: or ::warning:: annotations
         assert "::error" in output or "::warning" in output
 
+    def test_github_pr_output_format(self):
+        """Test the github-pr format emits a Markdown comment body."""
+        out = StringIO()
+        with pytest.raises(SystemExit):
+            call_command("check_migrations", "testapp", format="github-pr", stdout=out)
+
+        output = out.getvalue()
+        assert "## Django Safe Migrations" in output
+        assert "| Severity | Rule | Line | Message |" in output
+
     def test_json_output_structure(self):
         """Test JSON output has correct structure."""
         out = StringIO()

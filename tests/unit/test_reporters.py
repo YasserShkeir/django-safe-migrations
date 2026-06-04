@@ -372,6 +372,13 @@ class TestGetReporter:
         reporter = get_reporter("gitlab")
         assert isinstance(reporter, GitLabReporter)
 
+    def test_get_github_pr_reporter(self):
+        """Test getting the GitHub PR-comment reporter."""
+        from django_safe_migrations.reporters.github_pr import GitHubPRReporter
+
+        reporter = get_reporter("github-pr")
+        assert isinstance(reporter, GitHubPRReporter)
+
     def test_invalid_format(self):
         """Test that invalid format raises error."""
         with pytest.raises(ValueError) as exc_info:
@@ -616,3 +623,60 @@ class TestGitLabReporter:
 
         data = json.loads(output)
         assert data[0]["description"] == "Adding NOT NULL field 'email' without default"
+
+
+class TestGitHubPRReporter:
+    """Tests for the GitHub PR-comment (Markdown) reporter."""
+
+    def _reporter(self, stream):
+        from django_safe_migrations.reporters.github_pr import GitHubPRReporter
+
+        return GitHubPRReporter(stream=stream)
+
+    def test_renders_title_and_summary(self, sample_issues):
+        """Output has the title and a summary counting errors/warnings."""
+        out = StringIO()
+        output = self._reporter(out).report(sample_issues)
+
+        assert "## Django Safe Migrations" in output
+        # 2 errors (SM001, SM010) + 1 warning (SM002) in the fixture.
+        assert "2 errors" in output
+        assert "1 warning" in output
+
+    def test_groups_by_file_with_tables(self, sample_issues):
+        """Issues are grouped under per-file headers as Markdown tables."""
+        output = self._reporter(StringIO()).report(sample_issues)
+
+        assert "### `myapp/migrations/0002_add_email.py`" in output
+        assert "| Severity | Rule | Line | Message |" in output
+        assert "| ERROR | SM001 | 15 |" in output
+
+    def test_unknown_file_bucket(self):
+        """An issue with no file_path falls under the unknown bucket."""
+        issue = Issue(
+            rule_id="SM999",
+            severity=Severity.INFO,
+            operation="x",
+            message="no file here",
+        )
+        output = self._reporter(StringIO()).report([issue])
+        assert "(unknown migration)" in output
+
+    def test_escapes_pipe_in_message(self):
+        """A pipe in the message is escaped so the table is not broken."""
+        issue = Issue(
+            rule_id="SM050",
+            severity=Severity.ERROR,
+            operation="RunSQL",
+            message="DROP DATABASE foo | bar",
+            file_path="app/migrations/0001_x.py",
+            line_number=3,
+        )
+        output = self._reporter(StringIO()).report([issue])
+        assert "DROP DATABASE foo \\| bar" in output
+
+    def test_no_issues_message(self):
+        """With no issues the comment says so (green-check friendly)."""
+        output = self._reporter(StringIO()).report([])
+        assert "No migration safety issues found" in output
+        assert "## Django Safe Migrations" in output

@@ -32,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`RunPython`/`RunSQL`), `mixed`, or `empty` — to support expand–contract
   (blue-green / rolling) deploys. Informational report mode (console or
   `--format=json`); always exits 0.
+- **`--format=github-pr` reporter.** Renders a Markdown summary grouped by
+  migration file, suitable for posting as a single pull-request comment (e.g.
+  `gh pr comment --body-file`). Performs no network I/O; reports
+  "No migration safety issues found." when clean so it doubles as a green check.
 
 ## [0.7.0] - 2026-06-04
 

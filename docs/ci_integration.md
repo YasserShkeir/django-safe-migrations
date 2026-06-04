@@ -91,6 +91,37 @@ jobs:
 
 Using `--format=github` creates annotations that appear directly in your pull request files view and check runs.
 
+### GitHub PR Comment
+
+Using `--format=github-pr` renders a Markdown summary (grouped by migration
+file) that you can post as a single, sticky pull-request comment. The reporter
+does no network I/O — a workflow step posts the rendered body:
+
+```yaml
+on: [pull_request]
+
+jobs:
+  migration-safety:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write  # required to post the comment
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install django-safe-migrations
+      - name: Render report
+        run: python manage.py check_migrations --format=github-pr > dsm-comment.md
+      - name: Post PR comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment "${{ github.event.pull_request.number }}" --body-file dsm-comment.md
+```
+
+The comment reports "No migration safety issues found." when the run is clean,
+so it doubles as a green check.
+
 ## GitLab CI
 
 ### Basic Setup
