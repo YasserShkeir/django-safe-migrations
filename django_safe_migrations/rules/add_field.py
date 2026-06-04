@@ -794,3 +794,91 @@ Option 2: Use RunSQL to create IDENTITY columns manually:
                    'DROP IDENTITY',
    )
 """
+
+
+class VolatileDefaultWithUniqueRule(BaseRule):
+    """Detect AddField with unique=True and a callable default.
+
+    A callable default (e.g. ``uuid.uuid4``) is evaluated once by the migration
+    and the same value is written to every existing row, immediately violating
+    the UNIQUE constraint on any populated table — the migration fails.
+    """
+
+    rule_id = "SM040"
+    severity = Severity.ERROR
+    description = "Unique field with a callable default fails on populated tables"
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Flag AddField(unique=True, default=<callable>)."""
+        if not isinstance(operation, migrations.AddField):
+            return None
+
+        field = operation.field
+        if not getattr(field, "unique", False):
+            return None
+
+        from django.db.models.fields import NOT_PROVIDED
+
+        default = getattr(field, "default", NOT_PROVIDED)
+        if default is NOT_PROVIDED or not callable(default):
+            return None
+
+        return self.create_issue(
+            operation=operation,
+            migration=migration,
+            message=(
+                f"Adding field '{operation.name}' on '{operation.model_name}' "
+                "with unique=True and a callable default writes the SAME value "
+                "to every existing row, violating uniqueness and failing the "
+                "migration. Add the field nullable, backfill unique values per "
+                "row in a data migration, then add the unique constraint."
+            ),
+        )
+
+
+class AddStoredGeneratedFieldRule(BaseRule):
+    """Detect adding a stored GeneratedField to an existing table.
+
+    A stored (``db_persist=True``) ``GeneratedField`` (Django 5.0+) computes its
+    value for every existing row when added, requiring a full table rewrite
+    under an ACCESS EXCLUSIVE lock on PostgreSQL and MySQL.
+    """
+
+    rule_id = "SM041"
+    severity = Severity.WARNING
+    description = "Adding a stored GeneratedField rewrites the whole table"
+    django_min_version = (5, 0)
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Flag AddField of a GeneratedField with db_persist=True."""
+        if not isinstance(operation, migrations.AddField):
+            return None
+
+        try:
+            from django.db.models import GeneratedField
+        except ImportError:  # Django < 5.0
+            return None
+
+        field = operation.field
+        if isinstance(field, GeneratedField) and getattr(field, "db_persist", False):
+            return self.create_issue(
+                operation=operation,
+                migration=migration,
+                message=(
+                    f"Adding stored GeneratedField '{operation.name}' to "
+                    f"'{operation.model_name}' computes the value for every "
+                    "existing row, requiring a full table rewrite under an "
+                    "ACCESS EXCLUSIVE lock."
+                ),
+            )
+        return None

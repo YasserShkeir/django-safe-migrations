@@ -6,12 +6,14 @@ import logging
 
 from django_safe_migrations.rules.add_field import (
     AddFieldWithDefaultRule,
+    AddStoredGeneratedFieldRule,
     ExpensiveDefaultCallableRule,
     NotNullWithoutDefaultRule,
     PreferBigIntRule,
     PreferIdentityRule,
     PreferTextOverVarcharRule,
     PreferTimestampTZRule,
+    VolatileDefaultWithUniqueRule,
 )
 from django_safe_migrations.rules.add_index import (
     ConcurrentInAtomicMigrationRule,
@@ -32,6 +34,7 @@ from django_safe_migrations.rules.alter_field import (
 from django_safe_migrations.rules.base import BaseRule, Issue, Severity
 from django_safe_migrations.rules.constraints import (
     AddCheckConstraintRule,
+    AddExclusionConstraintRule,
     AddUniqueConstraintRule,
     AlterUniqueTogetherRule,
 )
@@ -89,6 +92,9 @@ __all__ = [
     "AddUniqueConstraintRule",
     "AlterUniqueTogetherRule",
     "AddCheckConstraintRule",
+    "AddExclusionConstraintRule",
+    "VolatileDefaultWithUniqueRule",
+    "AddStoredGeneratedFieldRule",
     # SM010-SM011, SM018 - Index rules
     "UnsafeIndexCreationRule",
     "UnsafeUniqueConstraintRule",
@@ -173,6 +179,9 @@ ALL_RULES: list[type[BaseRule]] = [
     TruncateInRunSQLRule,  # SM048
     TransactionNestingInRunSQLRule,  # SM049
     DropDatabaseInRunSQLRule,  # SM050
+    VolatileDefaultWithUniqueRule,  # SM040
+    AddStoredGeneratedFieldRule,  # SM041
+    AddExclusionConstraintRule,  # SM056
 ]
 
 logger = logging.getLogger("django_safe_migrations")

@@ -1,5 +1,7 @@
 """Tests for AddField rules."""
 
+import django
+import pytest
 from django.db import migrations, models
 
 from django_safe_migrations.rules.add_field import NotNullWithoutDefaultRule
@@ -1101,3 +1103,98 @@ class TestPreferIdentityRule:
         assert suggestion is not None
         assert "IDENTITY" in suggestion
         assert "Django 4.0" in suggestion
+
+
+class TestVolatileDefaultWithUniqueRule:
+    """Tests for VolatileDefaultWithUniqueRule (SM040)."""
+
+    def test_flags_unique_callable_default(self, mock_migration):
+        """unique=True with a callable default is flagged."""
+        import uuid
+
+        from django_safe_migrations.rules.add_field import VolatileDefaultWithUniqueRule
+
+        rule = VolatileDefaultWithUniqueRule()
+        op = migrations.AddField(
+            model_name="user",
+            name="uid",
+            field=models.UUIDField(default=uuid.uuid4, unique=True),
+        )
+        issue = rule.check(op, mock_migration)
+        assert issue is not None
+        assert issue.rule_id == "SM040"
+        assert issue.severity == Severity.ERROR
+
+    def test_allows_unique_static_default(self, mock_migration):
+        """A unique field with a static default is not flagged."""
+        from django_safe_migrations.rules.add_field import VolatileDefaultWithUniqueRule
+
+        rule = VolatileDefaultWithUniqueRule()
+        op = migrations.AddField(
+            model_name="user",
+            name="code",
+            field=models.CharField(max_length=5, default="X", unique=True),
+        )
+        assert rule.check(op, mock_migration) is None
+
+    def test_allows_callable_default_not_unique(self, mock_migration):
+        """A callable default without unique=True is not this rule's concern."""
+        from django.utils import timezone
+
+        from django_safe_migrations.rules.add_field import VolatileDefaultWithUniqueRule
+
+        rule = VolatileDefaultWithUniqueRule()
+        op = migrations.AddField(
+            model_name="user",
+            name="created",
+            field=models.DateTimeField(default=timezone.now),
+        )
+        assert rule.check(op, mock_migration) is None
+
+
+class TestAddStoredGeneratedFieldRule:
+    """Tests for AddStoredGeneratedFieldRule (SM041)."""
+
+    @pytest.mark.skipif(
+        django.VERSION < (5, 0), reason="GeneratedField requires Django 5.0+"
+    )
+    def test_flags_stored_generated_field(self, mock_migration):
+        """A stored (db_persist=True) GeneratedField is flagged."""
+        from django.db.models import GeneratedField
+
+        from django_safe_migrations.rules.add_field import AddStoredGeneratedFieldRule
+
+        rule = AddStoredGeneratedFieldRule()
+        gf = GeneratedField(
+            expression=models.F("price") * 2,
+            output_field=models.IntegerField(),
+            db_persist=True,
+        )
+        op = migrations.AddField(model_name="item", name="double", field=gf)
+        issue = rule.check(op, mock_migration)
+        assert issue is not None
+        assert issue.rule_id == "SM041"
+
+    @pytest.mark.skipif(
+        django.VERSION < (5, 0), reason="GeneratedField requires Django 5.0+"
+    )
+    def test_allows_virtual_generated_field(self, mock_migration):
+        """A virtual (db_persist=False) GeneratedField is not flagged."""
+        from django.db.models import GeneratedField
+
+        from django_safe_migrations.rules.add_field import AddStoredGeneratedFieldRule
+
+        rule = AddStoredGeneratedFieldRule()
+        gf = GeneratedField(
+            expression=models.F("price") * 2,
+            output_field=models.IntegerField(),
+            db_persist=False,
+        )
+        op = migrations.AddField(model_name="item", name="double", field=gf)
+        assert rule.check(op, mock_migration) is None
+
+    def test_requires_django_5_0(self):
+        """SM041 declares a Django 5.0 minimum."""
+        from django_safe_migrations.rules.add_field import AddStoredGeneratedFieldRule
+
+        assert AddStoredGeneratedFieldRule().django_min_version == (5, 0)

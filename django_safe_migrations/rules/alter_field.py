@@ -70,7 +70,9 @@ class AlterColumnTypeRule(BaseRule):
 
         # If we have the old field state, do precise comparison
         if old_field is not None:
-            if self._is_safe_change_with_old_field(old_field, field):
+            if self._is_safe_change_with_old_field(
+                old_field, field, kwargs.get("db_vendor")
+            ):
                 logger.debug(
                     "Skipping AlterField on %s.%s - safe change (old field known)",
                     operation.model_name,
@@ -96,14 +98,27 @@ class AlterColumnTypeRule(BaseRule):
             ),
         )
 
+    # Cross-type changes that are metadata-only on PostgreSQL (no rewrite).
+    # SM057: this allowlist only ever suppresses warnings (warn -> safe).
+    SAFE_CROSS_TYPE_CHANGES_POSTGRES = frozenset(
+        {
+            ("CharField", "TextField"),  # varchar(n) -> text
+        }
+    )
+
     def _is_safe_change_with_old_field(
-        self, old_field: object, new_field: object
+        self,
+        old_field: object,
+        new_field: object,
+        db_vendor: object = None,
     ) -> bool:
         """Check if the change is safe by comparing old and new fields.
 
         Args:
             old_field: The field definition before this operation.
             new_field: The new field definition.
+            db_vendor: The database vendor, used to allow known-safe
+                vendor-specific type conversions (SM057).
 
         Returns:
             True if the change is safe, False otherwise.
@@ -111,8 +126,14 @@ class AlterColumnTypeRule(BaseRule):
         old_type = old_field.__class__.__name__
         new_type = new_field.__class__.__name__
 
-        # A change of field/column type is potentially a full table rewrite.
+        # A change of field/column type is potentially a full table rewrite,
+        # unless it is a known-safe metadata-only conversion for this vendor.
         if old_type != new_type:
+            if (
+                db_vendor == "postgresql"
+                and (old_type, new_type) in self.SAFE_CROSS_TYPE_CHANGES_POSTGRES
+            ):
+                return True
             return False
 
         # Changing the column collation rewrites the table on PostgreSQL.
