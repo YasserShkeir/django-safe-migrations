@@ -116,6 +116,16 @@ class Command(BaseCommand):
             help="Only check migrations changed since BASE_REF (default: main)",
         )
         parser.add_argument(
+            "--since-commit",
+            type=str,
+            default=None,
+            metavar="COMMIT",
+            help=(
+                "Only check migrations committed in the range COMMIT..HEAD "
+                "(committed changes only; ignores the working tree)"
+            ),
+        )
+        parser.add_argument(
             "--baseline",
             type=str,
             default=None,
@@ -290,23 +300,38 @@ class Command(BaseCommand):
         issues: list[Issue] = []
 
         diff_ref = options.get("diff")
-        if diff_ref is not None:
+        since_commit = options.get("since_commit")
+        if diff_ref is not None and since_commit is not None:
+            self.stderr.write(
+                self.style.ERROR("Use only one of --diff and --since-commit.")
+            )
+            sys.exit(2)
+        if diff_ref is not None or since_commit is not None:
             from django.core.management.base import CommandError
 
             from django_safe_migrations.diff import (
                 DiffError,
                 get_changed_apps_and_migrations,
+                get_committed_apps_and_migrations,
             )
 
             try:
-                changed = get_changed_apps_and_migrations(diff_ref)
+                if since_commit is not None:
+                    changed = get_committed_apps_and_migrations(since_commit)
+                    mode_desc = f"committed since {since_commit}"
+                else:
+                    # Reachable only when diff_ref is set (the two are mutually
+                    # exclusive and at least one is non-None to enter here).
+                    assert diff_ref is not None
+                    changed = get_changed_apps_and_migrations(diff_ref)
+                    mode_desc = f"changed vs {diff_ref}"
             except DiffError as e:
                 self.stderr.write(self.style.ERROR(str(e)))
                 sys.exit(2)
 
             if verbose:
                 self.stderr.write(
-                    f"Diff mode: checking {len(changed)} changed migration(s)"
+                    f"Diff mode ({mode_desc}): checking " f"{len(changed)} migration(s)"
                 )
             for app_label, migration_name in changed:
                 if app_label in exclude_apps:

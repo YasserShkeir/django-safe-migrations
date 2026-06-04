@@ -122,6 +122,9 @@ python manage.py check_migrations --format=gitlab
 python manage.py check_migrations --diff
 python manage.py check_migrations --diff main
 
+# Incremental - only migrations committed since a known-good commit
+python manage.py check_migrations --since-commit origin/main
+
 # Baseline - suppress existing issues
 python manage.py check_migrations --generate-baseline .migration-baseline.json
 python manage.py check_migrations --baseline .migration-baseline.json
@@ -230,6 +233,7 @@ repos:
 | `--exclude-apps`           | Apps to exclude from checking                                 |
 | `--include-django-apps`    | Include Django's built-in apps                                |
 | `--diff [BASE_REF]`        | Only check migrations changed since BASE_REF (default: main)  |
+| `--since-commit COMMIT`    | Only check migrations committed in COMMIT..HEAD (no worktree) |
 | `--baseline FILE`          | Exclude issues present in baseline file                       |
 | `--generate-baseline FILE` | Generate baseline file from current issues                    |
 | `--interactive`            | Interactively review each issue                               |

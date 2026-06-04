@@ -278,6 +278,46 @@ class TestCommandOptions:
             call_command("check_migrations", diff="main", stdout=out, stderr=err)
         assert "Skipping" in err.getvalue()
 
+    def test_since_commit_analyzes_committed_migration(self):
+        """--since-commit analyzes only migrations in the committed range."""
+        from unittest.mock import patch
+
+        out = StringIO()
+        with patch(
+            "django_safe_migrations.diff.get_committed_apps_and_migrations",
+            return_value=[("testapp", "0001_initial")],
+        ) as mock_committed:
+            try:
+                call_command(
+                    "check_migrations",
+                    since_commit="abc123",
+                    format="json",
+                    stdout=out,
+                )
+            except SystemExit:
+                pass
+
+        mock_committed.assert_called_once_with("abc123")
+        data = json.loads(out.getvalue())
+        assert "issues" in data
+        # Only the single committed migration is analyzed.
+        for issue in data["issues"]:
+            assert issue["migration_name"] == "0001_initial"
+
+    def test_diff_and_since_commit_are_mutually_exclusive(self):
+        """Passing both --diff and --since-commit exits with code 2."""
+        out, err = StringIO(), StringIO()
+        with pytest.raises(SystemExit) as exc:
+            call_command(
+                "check_migrations",
+                diff="main",
+                since_commit="abc123",
+                stdout=out,
+                stderr=err,
+            )
+        assert exc.value.code == 2
+        assert "only one of" in err.getvalue().lower()
+
     def test_exclude_apps_removes_detection(self):
         """Test --exclude-apps properly excludes apps from analysis."""
         out = StringIO()

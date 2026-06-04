@@ -203,6 +203,16 @@ Documentation: https://django-safe-migrations.readthedocs.io/
         help="Only check migrations changed since BASE_REF (default: main)",
     )
     parser.add_argument(
+        "--since-commit",
+        type=str,
+        default=None,
+        metavar="COMMIT",
+        help=(
+            "Only check migrations committed in COMMIT..HEAD "
+            "(committed changes only; ignores the working tree)"
+        ),
+    )
+    parser.add_argument(
         "--baseline",
         type=str,
         default=None,
@@ -300,21 +310,31 @@ Documentation: https://django-safe-migrations.readthedocs.io/
     # Collect issues
     issues: list[Issue] = []
 
-    if args.diff is not None:
+    if args.diff is not None and args.since_commit is not None:
+        print("Use only one of --diff and --since-commit.", file=sys.stderr)
+        return 2
+
+    if args.diff is not None or args.since_commit is not None:
         # Diff mode — only check changed migrations
         from django_safe_migrations.diff import (
             DiffError,
             get_changed_apps_and_migrations,
+            get_committed_apps_and_migrations,
         )
 
         try:
-            changed = get_changed_apps_and_migrations(args.diff)
+            if args.since_commit is not None:
+                changed = get_committed_apps_and_migrations(args.since_commit)
+                mode_desc = f"committed since {args.since_commit}"
+            else:
+                changed = get_changed_apps_and_migrations(args.diff)
+                mode_desc = f"changed vs {args.diff}"
         except DiffError as e:
             print(str(e), file=sys.stderr)
             return 2
         if args.verbose:
             print(
-                f"Diff mode: checking {len(changed)} changed migration(s)",
+                f"Diff mode ({mode_desc}): checking {len(changed)} migration(s)",
                 file=sys.stderr,
             )
         for app_label, migration_name in changed:

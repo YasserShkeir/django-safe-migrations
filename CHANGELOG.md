@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`--since-commit COMMIT`.** Check only migrations changed in the committed
+  range `COMMIT..HEAD`. Unlike `--diff` (which compares against the working
+  tree), uncommitted edits are ignored — suited to incremental CI that lints
+  only what was committed since the last green build. Mutually exclusive with
+  `--diff`.
+
 ## [0.7.0] - 2026-06-04
 
 ### Added

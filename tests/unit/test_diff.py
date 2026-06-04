@@ -13,6 +13,8 @@ from django_safe_migrations.diff import (
     _find_git_root,
     get_changed_apps_and_migrations,
     get_changed_migration_files,
+    get_committed_apps_and_migrations,
+    get_committed_migration_files,
 )
 
 
@@ -366,3 +368,87 @@ class TestGetChangedAppsAndMigrations:
         assert "0001_initial" in migration_names
         assert "0002_add_field" in migration_names
         assert "0003_remove_field" in migration_names
+
+
+class TestGetCommittedMigrationFiles:
+    """Tests for get_committed_migration_files (committed-range diff)."""
+
+    def test_uses_committed_range(self, tmp_path):
+        """The git diff uses ``<commit>..HEAD`` so the working tree is ignored."""
+        app_dir = tmp_path / "myapp" / "migrations"
+        app_dir.mkdir(parents=True)
+        (app_dir / "0002_add_field.py").write_text("# migration")
+
+        mock_diff_result = MagicMock()
+        mock_diff_result.stdout = "myapp/migrations/0002_add_field.py\n"
+        mock_root_result = MagicMock()
+        mock_root_result.stdout = str(tmp_path) + "\n"
+
+        calls = []
+
+        def mock_run(cmd, **kwargs):
+            calls.append(cmd)
+            if "rev-parse" in cmd:
+                return mock_root_result
+            return mock_diff_result
+
+        with patch("django_safe_migrations.diff.subprocess.run", side_effect=mock_run):
+            files = get_committed_migration_files("abc123")
+
+        assert len(files) == 1
+        diff_cmd = next(c for c in calls if "diff" in c)
+        assert "abc123..HEAD" in diff_cmd
+
+    def test_rejects_empty_commit(self):
+        """An empty/whitespace commit is rejected before any git call."""
+        with patch("django_safe_migrations.diff.subprocess.run") as mock_run:
+            with pytest.raises(DiffError, match="non-empty"):
+                get_committed_migration_files("   ")
+        mock_run.assert_not_called()
+
+    def test_rejects_commit_starting_with_dash(self):
+        """A commit starting with '-' is rejected (argument-injection guard)."""
+        with patch("django_safe_migrations.diff.subprocess.run") as mock_run:
+            with pytest.raises(DiffError, match="may not start with"):
+                get_committed_migration_files("--output=/tmp/evil")
+        mock_run.assert_not_called()
+
+    def test_raises_diff_error_on_bad_commit(self):
+        """An unknown commit surfaces a DiffError from git."""
+        mock_root_result = MagicMock()
+        mock_root_result.stdout = "/tmp\n"
+
+        def mock_run(cmd, **kwargs):
+            if "rev-parse" in cmd:
+                return mock_root_result
+            raise subprocess.CalledProcessError(1, "git")
+
+        with patch("django_safe_migrations.diff.subprocess.run", side_effect=mock_run):
+            with pytest.raises(DiffError, match="Could not run git diff"):
+                get_committed_migration_files("deadbeef")
+
+
+class TestGetCommittedAppsAndMigrations:
+    """Tests for get_committed_apps_and_migrations."""
+
+    def test_extracts_app_and_migration(self):
+        """App labels / migration names are parsed from committed file paths."""
+        changed_files = ["/project/myapp/migrations/0002_add_email.py"]
+
+        with patch(
+            "django_safe_migrations.diff.get_committed_migration_files",
+            return_value=changed_files,
+        ):
+            result = get_committed_apps_and_migrations("abc123")
+
+        assert result == [("myapp", "0002_add_email")]
+
+    def test_forwards_commit(self):
+        """The commit is forwarded to get_committed_migration_files."""
+        with patch(
+            "django_safe_migrations.diff.get_committed_migration_files",
+            return_value=[],
+        ) as mock_fn:
+            get_committed_apps_and_migrations("v1.0.0")
+
+        mock_fn.assert_called_once_with("v1.0.0")
