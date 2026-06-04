@@ -493,6 +493,31 @@ The cache is **opt-in** and best-effort: an unreadable or corrupt cache file is
 ignored rather than failing the run. The cache file is safe to delete at any
 time and should usually be added to `.gitignore`.
 
+### `--check-reverse`
+
+Also analyse each migration's **rollback** path. A migration can be perfectly
+reversible yet have a backwards path that is destructive in production —
+rolling back an additive migration runs the destructive inverse:
+
+```bash
+python manage.py check_migrations --check-reverse
+```
+
+This emits issues in the `RV0xx` family (separate from the forward `SM0xx`
+rules, and only when the flag is given):
+
+| Rule  | Forward op      | Rollback runs     | Severity |
+| ----- | --------------- | ----------------- | -------- |
+| RV001 | `AddField`      | `DROP COLUMN`     | WARNING  |
+| RV002 | `CreateModel`   | `DROP TABLE`      | WARNING  |
+| RV003 | `AddIndex`      | `DROP INDEX`      | INFO     |
+| RV004 | `AddConstraint` | `DROP CONSTRAINT` | INFO     |
+
+This is distinct from `SM007` / `SM016`, which flag `RunSQL` / `RunPython` that
+cannot be reversed *at all*. Operations whose reverse would need to reconstruct
+lost state (`RemoveField`, `DeleteModel`, `AlterField`) are intentionally out of
+scope to avoid guessing.
+
 ### `--baseline`
 
 Exclude issues that are present in a baseline file:

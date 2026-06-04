@@ -169,6 +169,14 @@ class Command(BaseCommand):
             metavar="PATH",
             help="Path to the cache file (implies --cache)",
         )
+        parser.add_argument(
+            "--check-reverse",
+            action="store_true",
+            help=(
+                "Also check each migration's rollback path for destructive "
+                "operations (RV0xx issues)"
+            ),
+        )
 
     def list_rules(self, output_format: str) -> None:
         """List all available rules.
@@ -306,7 +314,11 @@ class Command(BaseCommand):
             exclude_apps = list(set(exclude_apps + django_apps))
 
         # Create analyzer
-        analyzer = MigrationAnalyzer(db_vendor=db_vendor_override, verbose=verbose)
+        analyzer = MigrationAnalyzer(
+            db_vendor=db_vendor_override,
+            verbose=verbose,
+            check_reverse=options.get("check_reverse", False),
+        )
 
         # Optional result cache (--cache / --cache-file). Opt-in; namespaced by
         # a fingerprint so upgrades / config changes never serve stale results.
@@ -320,7 +332,9 @@ class Command(BaseCommand):
 
             cache_path = options.get("cache_file") or DEFAULT_CACHE_FILE
             fingerprint = compute_fingerprint(
-                analyzer.db_vendor, [r.rule_id for r in analyzer.rules]
+                analyzer.db_vendor,
+                [r.rule_id for r in analyzer.rules],
+                check_reverse=analyzer.check_reverse,
             )
             cache = AnalysisCache(cache_path, fingerprint)
             analyzer.cache = cache

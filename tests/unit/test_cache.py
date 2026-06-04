@@ -74,6 +74,12 @@ class TestFingerprint:
             "postgresql", ["SM001", "SM002"]
         )
 
+    def test_differs_by_check_reverse(self):
+        """Toggling reverse analysis changes the fingerprint (RV0xx issues)."""
+        base = compute_fingerprint("postgresql", ["SM001"], check_reverse=False)
+        rev = compute_fingerprint("postgresql", ["SM001"], check_reverse=True)
+        assert base != rev
+
 
 class TestIssueRoundTrip:
     """Issue.to_dict / from_dict round-trips for the cache."""

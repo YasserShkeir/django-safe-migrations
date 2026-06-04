@@ -48,7 +48,11 @@ def file_sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def compute_fingerprint(db_vendor: str, rule_ids: list[str]) -> str:
+def compute_fingerprint(
+    db_vendor: str,
+    rule_ids: list[str],
+    check_reverse: bool = False,
+) -> str:
     """Compute a fingerprint that namespaces the cache.
 
     Any change to the things below must invalidate the entire cache because
@@ -58,6 +62,8 @@ def compute_fingerprint(db_vendor: str, rule_ids: list[str]) -> str:
         db_vendor: The active database vendor.
         rule_ids: The rule IDs that are active for this run (already reflects
             DISABLED_RULES, db-vendor gating and Django-version gating).
+        check_reverse: Whether reverse-safety analysis is enabled (it adds
+            ``RV0xx`` issues, so on/off must produce different fingerprints).
 
     Returns:
         A hex digest uniquely identifying this analysis configuration.
@@ -80,6 +86,7 @@ def compute_fingerprint(db_vendor: str, rule_ids: list[str]) -> str:
         "vendor": db_vendor,
         "use_tz": bool(getattr(settings, "USE_TZ", False)),
         "rules": sorted(rule_ids),
+        "check_reverse": bool(check_reverse),
         "config": hashlib.sha256(config_blob.encode("utf-8")).hexdigest(),
     }
     blob = json.dumps(parts, sort_keys=True)

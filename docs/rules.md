@@ -1991,3 +1991,32 @@ a table to (or from) a composite primary key after the table is created.
 Define the composite primary key when the model is first created. To change an
 existing table, recreate it (e.g. via `SeparateDatabaseAndState` plus raw SQL)
 during a planned migration.
+
+______________________________________________________________________
+
+## Reverse-safety rules (RV0xx)
+
+The `RV0xx` rules are **not** part of the normal forward analysis. They run only
+when you pass `--check-reverse`, and they describe what happens to the database
+when a migration is **rolled back**. A migration can be perfectly reversible yet
+have a destructive rollback path: rolling back an additive migration runs the
+destructive inverse operation.
+
+These are distinct from `SM007` / `SM016`, which detect `RunSQL` / `RunPython`
+that cannot be reversed *at all*. Operations whose reverse would need to
+reconstruct lost state (`RemoveField`, `DeleteModel`, `AlterField`) are out of
+scope to avoid guessing at the historical schema.
+
+| Rule  | Forward op      | Rollback runs     | Severity | Why it matters                                         |
+| ----- | --------------- | ----------------- | -------- | ------------------------------------------------------ |
+| RV001 | `AddField`      | `DROP COLUMN`     | WARNING  | Rollback drops the column and any data written to it.  |
+| RV002 | `CreateModel`   | `DROP TABLE`      | WARNING  | Rollback drops the whole table and all of its rows.    |
+| RV003 | `AddIndex`      | `DROP INDEX`      | INFO     | `DROP INDEX` takes a brief exclusive lock on rollback. |
+| RV004 | `AddConstraint` | `DROP CONSTRAINT` | INFO     | Rollback removes the integrity guarantee it enforced.  |
+
+### Safe pattern
+
+Treat rollbacks of additive migrations as destructive by design. If a clean
+rollback matters, separate additive and removal steps into distinct migrations,
+or reverse a concurrently-created index with `DROP INDEX CONCURRENTLY` via a
+hand-written `RunSQL` reverse.

@@ -345,6 +345,35 @@ class TestCommandOptions:
         second = run()
         assert first["issues"] == second["issues"]
 
+    def test_check_reverse_surfaces_rv_issues(self):
+        """--check-reverse adds RV0xx rollback issues to the output."""
+        out = StringIO()
+        try:
+            call_command(
+                "check_migrations",
+                "testapp",
+                format="json",
+                check_reverse=True,
+                stdout=out,
+            )
+        except SystemExit:
+            pass
+
+        data = json.loads(out.getvalue())
+        rv = [i for i in data["issues"] if i["rule_id"].startswith("RV")]
+        assert rv, "expected at least one reverse-safety issue"
+
+    def test_no_reverse_issues_without_flag(self):
+        """Without --check-reverse, no RV0xx issues appear."""
+        out = StringIO()
+        try:
+            call_command("check_migrations", "testapp", format="json", stdout=out)
+        except SystemExit:
+            pass
+
+        data = json.loads(out.getvalue())
+        assert not any(i["rule_id"].startswith("RV") for i in data["issues"])
+
     def test_exclude_apps_removes_detection(self):
         """Test --exclude-apps properly excludes apps from analysis."""
         out = StringIO()
