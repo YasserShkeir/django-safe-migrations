@@ -1810,3 +1810,78 @@ A `RunSQL` statement that starts with `DROP DATABASE` or `DROP SCHEMA`.
 Dropping a database or schema from a migration destroys the database/schema and
 all of its objects. It is catastrophic and irreversible and must never run as
 part of a migration.
+
+______________________________________________________________________
+
+## SM040: volatile_default_with_unique
+
+| Field         | Value |
+| ------------- | ----- |
+| **Rule ID**   | SM040 |
+| **Severity**  | ERROR |
+| **Databases** | All   |
+
+### What it detects
+
+`AddField` with `unique=True` and a callable `default` (e.g.
+`UUIDField(default=uuid.uuid4, unique=True)`).
+
+### Why it matters
+
+The migration evaluates the callable once and writes the same value to every
+existing row, which immediately violates the UNIQUE constraint — the migration
+fails on any populated table.
+
+### Safe pattern
+
+```python
+# 1. Add nullable
+migrations.AddField("user", "uuid", models.UUIDField(null=True))
+# 2. Backfill a unique value per row (data migration)
+# 3. Add the unique constraint
+migrations.AlterField("user", "uuid", models.UUIDField(unique=True))
+```
+
+______________________________________________________________________
+
+## SM041: adding_stored_generated_field
+
+| Field         | Value   |
+| ------------- | ------- |
+| **Rule ID**   | SM041   |
+| **Severity**  | WARNING |
+| **Databases** | All     |
+| **Django**    | 5.0+    |
+
+### What it detects
+
+`AddField` of a `GeneratedField` with `db_persist=True` (a STORED generated
+column).
+
+### Why it matters
+
+A stored generated column is computed for every existing row when added,
+requiring a full table rewrite under an ACCESS EXCLUSIVE lock on PostgreSQL and
+MySQL. Virtual generated columns (`db_persist=False`) are metadata-only but are
+only supported on newer database versions.
+
+______________________________________________________________________
+
+## SM056: adding_exclusion_constraint
+
+| Field         | Value      |
+| ------------- | ---------- |
+| **Rule ID**   | SM056      |
+| **Severity**  | WARNING    |
+| **Databases** | PostgreSQL |
+
+### What it detects
+
+`AddConstraint` with a PostgreSQL `ExclusionConstraint`.
+
+### Why it matters
+
+Unlike CHECK and FOREIGN KEY constraints, an exclusion constraint cannot be
+added `NOT VALID`. Adding one to a populated table always requires a full table
+scan under an ACCESS EXCLUSIVE lock — there is no safe incremental approach.
+Add it when the table is created, or plan for the lock.

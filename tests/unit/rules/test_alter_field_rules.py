@@ -840,3 +840,51 @@ class TestDropNotNullRule:
         assert suggestion is not None
         assert "NULL" in suggestion or "null" in suggestion.lower()
         assert "email" in suggestion
+
+
+class TestSmartColumnTypeChanges:
+    """Tests for SM057 — SM004's safe cross-type-change allowlist."""
+
+    def test_charfield_to_textfield_safe_on_postgres(self, mock_migration):
+        """A varchar -> text change is metadata-only on PostgreSQL (safe)."""
+        rule = AlterColumnTypeRule()
+        op = migrations.AlterField(
+            model_name="user", name="bio", field=models.TextField()
+        )
+        issue = rule.check(
+            op,
+            mock_migration,
+            old_field=models.CharField(max_length=200),
+            db_vendor="postgresql",
+        )
+        assert issue is None
+
+    def test_charfield_to_textfield_flagged_off_postgres(self, mock_migration):
+        """The allowlist is PostgreSQL-specific; other vendors still warn."""
+        rule = AlterColumnTypeRule()
+        op = migrations.AlterField(
+            model_name="user", name="bio", field=models.TextField()
+        )
+        issue = rule.check(
+            op,
+            mock_migration,
+            old_field=models.CharField(max_length=200),
+            db_vendor="mysql",
+        )
+        assert issue is not None
+        assert issue.rule_id == "SM004"
+
+    def test_unsafe_type_change_still_flagged(self, mock_migration):
+        """A genuinely unsafe type change is still flagged on PostgreSQL."""
+        rule = AlterColumnTypeRule()
+        op = migrations.AlterField(
+            model_name="user", name="code", field=models.IntegerField()
+        )
+        issue = rule.check(
+            op,
+            mock_migration,
+            old_field=models.CharField(max_length=50),
+            db_vendor="postgresql",
+        )
+        assert issue is not None
+        assert issue.rule_id == "SM004"

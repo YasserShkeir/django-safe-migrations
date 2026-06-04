@@ -304,3 +304,46 @@ class AddCheckConstraintRule(BaseRule):
 Note: VALIDATE CONSTRAINT takes a SHARE UPDATE EXCLUSIVE lock,
 which allows reads and writes but blocks schema changes.
 """
+
+
+class AddExclusionConstraintRule(BaseRule):
+    """Detect adding a PostgreSQL exclusion constraint to an existing table.
+
+    Unlike CHECK and FOREIGN KEY constraints, an exclusion constraint cannot be
+    added ``NOT VALID``. Adding one to a populated table always requires a full
+    table scan under an ACCESS EXCLUSIVE lock — there is no safe incremental
+    approach.
+    """
+
+    rule_id = "SM056"
+    severity = Severity.WARNING
+    description = "Adding an exclusion constraint scans the whole table"
+    db_vendors = ["postgresql"]
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Flag AddConstraint of an ExclusionConstraint."""
+        if not isinstance(operation, migrations.AddConstraint):
+            return None
+
+        constraint = getattr(operation, "constraint", None)
+        # Match by class name to avoid importing django.contrib.postgres here.
+        if (
+            constraint is not None
+            and type(constraint).__name__ == "ExclusionConstraint"
+        ):
+            return self.create_issue(
+                operation=operation,
+                migration=migration,
+                message=(
+                    "Adding an exclusion constraint to an existing table "
+                    "requires a full table scan under an ACCESS EXCLUSIVE lock "
+                    "and cannot use NOT VALID. Add it when the table is created "
+                    "or plan for the lock."
+                ),
+            )
+        return None

@@ -323,3 +323,46 @@ class TestAddCheckConstraintRule:
     def test_does_not_apply_to_sqlite(self, rule: AddCheckConstraintRule) -> None:
         """Test that rule does not apply to SQLite."""
         assert rule.applies_to_db("sqlite") is False
+
+
+class TestAddExclusionConstraintRule:
+    """Tests for AddExclusionConstraintRule (SM056)."""
+
+    def test_flags_exclusion_constraint(self, mock_migration):
+        """Adding an ExclusionConstraint is flagged."""
+        from django.contrib.postgres.constraints import ExclusionConstraint
+        from django.contrib.postgres.fields import RangeOperators
+        from django.db import migrations
+
+        from django_safe_migrations.rules.constraints import AddExclusionConstraintRule
+
+        rule = AddExclusionConstraintRule()
+        constraint = ExclusionConstraint(
+            name="excl", expressions=[("room", RangeOperators.EQUAL)]
+        )
+        op = migrations.AddConstraint(model_name="booking", constraint=constraint)
+        issue = rule.check(op, mock_migration, db_vendor="postgresql")
+        assert issue is not None
+        assert issue.rule_id == "SM056"
+
+    def test_allows_unique_constraint(self, mock_migration):
+        """A plain UniqueConstraint is not flagged by SM056."""
+        from django.db import migrations
+        from django.db.models import UniqueConstraint
+
+        from django_safe_migrations.rules.constraints import AddExclusionConstraintRule
+
+        rule = AddExclusionConstraintRule()
+        op = migrations.AddConstraint(
+            model_name="booking",
+            constraint=UniqueConstraint(fields=["code"], name="u"),
+        )
+        assert rule.check(op, mock_migration, db_vendor="postgresql") is None
+
+    def test_postgresql_only(self):
+        """SM056 is PostgreSQL-only."""
+        from django_safe_migrations.rules.constraints import AddExclusionConstraintRule
+
+        rule = AddExclusionConstraintRule()
+        assert rule.applies_to_db("postgresql") is True
+        assert rule.applies_to_db("mysql") is False

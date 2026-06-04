@@ -22,6 +22,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   nested transaction.
 - **SM050** `drop_database_in_runsql` (ERROR): `DROP DATABASE`/`DROP SCHEMA` in
   a migration is catastrophic.
+- **SM040** `volatile_default_with_unique` (ERROR): adding a field with
+  `unique=True` and a callable default writes the same value to every existing
+  row, violating uniqueness.
+- **SM041** `adding_stored_generated_field` (WARNING, Django 5.0+): adding a
+  stored `GeneratedField` rewrites the whole table.
+- **SM056** `adding_exclusion_constraint` (WARNING, PostgreSQL): exclusion
+  constraints cannot use `NOT VALID`; adding one scans the whole table under an
+  ACCESS EXCLUSIVE lock.
+
+### Changed
+
+- **SM004** (`alter_column_type`): no longer warns on known-safe PostgreSQL
+  cross-type conversions (currently `CharField`→`TextField`, i.e. `varchar`→
+  `text`), which are metadata-only. (This is the SM057 enhancement.)
 
 ## [0.6.3] - 2026-06-04
 
