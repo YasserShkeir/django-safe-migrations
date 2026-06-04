@@ -232,6 +232,10 @@ class MigrationAnalyzer:
             if not rule.applies_to_db(self.db_vendor):
                 continue
 
+            # Skip rules that require a newer Django than is installed
+            if not rule.applies_to_django():
+                continue
+
             # Check for inline suppression comments
             if file_path and operation_line:
                 if is_operation_suppressed(

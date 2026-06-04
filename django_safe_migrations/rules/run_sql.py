@@ -882,3 +882,169 @@ class PreferIfExistsRule(BaseRule):
 
 This makes migrations idempotent and safe to re-run.
 """
+
+
+class TruncateInRunSQLRule(BaseRule):
+    """Detect TRUNCATE in RunSQL.
+
+    ``TRUNCATE TABLE`` deletes all rows in a table, and ``TRUNCATE ... CASCADE``
+    also deletes rows from every referencing table. Putting it in a migration
+    is almost always a mistake and is unrecoverable.
+    """
+
+    rule_id = "SM048"
+    severity = Severity.WARNING
+    description = "TRUNCATE in a migration deletes all table data"
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Flag a RunSQL statement that starts with TRUNCATE."""
+        if not isinstance(operation, migrations.RunSQL):
+            return None
+
+        for statement in _split_sql_statements(getattr(operation, "sql", "")):
+            if re.match(r"TRUNCATE\b", statement, re.IGNORECASE):
+                return self.create_issue(
+                    operation=operation,
+                    migration=migration,
+                    message=(
+                        "RunSQL contains TRUNCATE, which deletes all data in the "
+                        "table. TRUNCATE ... CASCADE also deletes data from "
+                        "referencing tables. Avoid TRUNCATE in migrations; delete "
+                        "rows explicitly (and reversibly) if data removal is "
+                        "intended."
+                    ),
+                )
+        return None
+
+
+class DropDatabaseInRunSQLRule(BaseRule):
+    """Detect DROP DATABASE / DROP SCHEMA in RunSQL.
+
+    Dropping a database or schema from a migration is catastrophic and
+    irreversible; it should never appear in a migration.
+    """
+
+    rule_id = "SM050"
+    severity = Severity.ERROR
+    description = "DROP DATABASE/SCHEMA in a migration is catastrophic"
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Flag a RunSQL statement that starts with DROP DATABASE/SCHEMA."""
+        if not isinstance(operation, migrations.RunSQL):
+            return None
+
+        for statement in _split_sql_statements(getattr(operation, "sql", "")):
+            if re.match(r"DROP\s+(DATABASE|SCHEMA)\b", statement, re.IGNORECASE):
+                return self.create_issue(
+                    operation=operation,
+                    migration=migration,
+                    message=(
+                        "RunSQL contains DROP DATABASE/SCHEMA, which destroys the "
+                        "database or schema and all of its objects. This must not "
+                        "run as part of a migration."
+                    ),
+                )
+        return None
+
+
+class TransactionNestingInRunSQLRule(BaseRule):
+    """Detect explicit transaction control in RunSQL inside an atomic migration.
+
+    Django wraps atomic migrations in a transaction. Issuing ``BEGIN``,
+    ``COMMIT``, ``ROLLBACK``, or ``START TRANSACTION`` inside RunSQL then creates
+    a nested transaction, which PostgreSQL does not truly support — the
+    statements either error or leave the surrounding transaction in an
+    unexpected state.
+    """
+
+    rule_id = "SM049"
+    severity = Severity.ERROR
+    description = "Explicit transaction control in RunSQL conflicts with atomic"
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Flag transaction-control statements in an atomic migration."""
+        if not isinstance(operation, migrations.RunSQL):
+            return None
+
+        # Only an issue inside the implicit transaction of an atomic migration.
+        if not getattr(migration, "atomic", True):
+            return None
+
+        for statement in _split_sql_statements(getattr(operation, "sql", "")):
+            if re.match(
+                r"(BEGIN|START\s+TRANSACTION|COMMIT|ROLLBACK)\b",
+                statement,
+                re.IGNORECASE,
+            ):
+                return self.create_issue(
+                    operation=operation,
+                    migration=migration,
+                    message=(
+                        "RunSQL contains explicit transaction control "
+                        "(BEGIN/COMMIT/ROLLBACK) inside an atomic migration, which "
+                        "Django already wraps in a transaction. This causes nested "
+                        "transaction errors. Set atomic = False on the migration "
+                        "or remove the explicit transaction statements."
+                    ),
+                )
+        return None
+
+
+class ConstraintMissingNotValidRule(BaseRule):
+    """Detect ADD CONSTRAINT (CHECK / FOREIGN KEY) without NOT VALID.
+
+    On PostgreSQL, adding a CHECK or FOREIGN KEY constraint validates every
+    existing row under an ACCESS EXCLUSIVE lock. The safe pattern adds the
+    constraint ``NOT VALID`` (a quick metadata change), then runs
+    ``VALIDATE CONSTRAINT`` separately under a weaker lock.
+    """
+
+    rule_id = "SM047"
+    severity = Severity.WARNING
+    description = "ADD CONSTRAINT (CHECK/FK) without NOT VALID scans the table"
+    db_vendors = ["postgresql"]
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Flag ALTER TABLE ... ADD CONSTRAINT ... CHECK/FK without NOT VALID."""
+        if not isinstance(operation, migrations.RunSQL):
+            return None
+
+        for statement in _split_sql_statements(getattr(operation, "sql", "")):
+            upper = statement.upper()
+            if (
+                re.search(r"\bALTER\s+TABLE\b", upper)
+                and re.search(r"\bADD\s+CONSTRAINT\b", upper)
+                and re.search(r"\b(FOREIGN\s+KEY|CHECK)\b", upper)
+                and "NOT VALID" not in upper
+            ):
+                return self.create_issue(
+                    operation=operation,
+                    migration=migration,
+                    message=(
+                        "RunSQL adds a CHECK/FOREIGN KEY constraint without "
+                        "NOT VALID, which scans the whole table under an ACCESS "
+                        "EXCLUSIVE lock. Add the constraint NOT VALID, then run "
+                        "VALIDATE CONSTRAINT in a separate statement/migration."
+                    ),
+                )
+        return None

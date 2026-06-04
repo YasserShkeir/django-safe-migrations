@@ -1016,3 +1016,151 @@ class TestPreferIfExistsRule:
 
         assert issue is not None
         assert issue.rule_id == "SM036"
+
+
+class TestTruncateInRunSQLRule:
+    """Tests for TruncateInRunSQLRule (SM048)."""
+
+    def test_flags_truncate(self, mock_migration):
+        """TRUNCATE in RunSQL is flagged."""
+        from django_safe_migrations.rules.run_sql import TruncateInRunSQLRule
+
+        rule = TruncateInRunSQLRule()
+        op = migrations.RunSQL(
+            "TRUNCATE TABLE users", reverse_sql=migrations.RunSQL.noop
+        )
+        issue = rule.check(op, mock_migration)
+        assert issue is not None
+        assert issue.rule_id == "SM048"
+
+    def test_ignores_non_truncate(self, mock_migration):
+        """Non-TRUNCATE SQL is not flagged."""
+        from django_safe_migrations.rules.run_sql import TruncateInRunSQLRule
+
+        rule = TruncateInRunSQLRule()
+        op = migrations.RunSQL("DELETE FROM users WHERE id = 1")
+        assert rule.check(op, mock_migration) is None
+
+    def test_ignores_truncate_in_comment(self, mock_migration):
+        """The word TRUNCATE inside a comment must not fire (anchored match)."""
+        from django_safe_migrations.rules.run_sql import TruncateInRunSQLRule
+
+        rule = TruncateInRunSQLRule()
+        op = migrations.RunSQL("-- we will TRUNCATE later\nSELECT 1")
+        assert rule.check(op, mock_migration) is None
+
+    def test_ignores_non_runsql(self, not_null_field_operation, mock_migration):
+        """Non-RunSQL operations are ignored."""
+        from django_safe_migrations.rules.run_sql import TruncateInRunSQLRule
+
+        rule = TruncateInRunSQLRule()
+        assert rule.check(not_null_field_operation, mock_migration) is None
+
+
+class TestDropDatabaseInRunSQLRule:
+    """Tests for DropDatabaseInRunSQLRule (SM050)."""
+
+    def test_flags_drop_database(self, mock_migration):
+        """DROP DATABASE is flagged."""
+        from django_safe_migrations.rules.run_sql import DropDatabaseInRunSQLRule
+
+        rule = DropDatabaseInRunSQLRule()
+        op = migrations.RunSQL("DROP DATABASE production")
+        issue = rule.check(op, mock_migration)
+        assert issue is not None
+        assert issue.rule_id == "SM050"
+        assert issue.severity == Severity.ERROR
+
+    def test_flags_drop_schema(self, mock_migration):
+        """DROP SCHEMA is flagged."""
+        from django_safe_migrations.rules.run_sql import DropDatabaseInRunSQLRule
+
+        rule = DropDatabaseInRunSQLRule()
+        op = migrations.RunSQL("DROP SCHEMA legacy CASCADE")
+        assert rule.check(op, mock_migration) is not None
+
+    def test_ignores_drop_table(self, mock_migration):
+        """DROP TABLE is not this rule's concern."""
+        from django_safe_migrations.rules.run_sql import DropDatabaseInRunSQLRule
+
+        rule = DropDatabaseInRunSQLRule()
+        op = migrations.RunSQL("DROP TABLE temp", reverse_sql=migrations.RunSQL.noop)
+        assert rule.check(op, mock_migration) is None
+
+
+class TestTransactionNestingInRunSQLRule:
+    """Tests for TransactionNestingInRunSQLRule (SM049)."""
+
+    def test_flags_begin_in_atomic(self, mock_migration):
+        """BEGIN inside an atomic migration is flagged."""
+        from django_safe_migrations.rules.run_sql import TransactionNestingInRunSQLRule
+
+        rule = TransactionNestingInRunSQLRule()
+        op = migrations.RunSQL("BEGIN; UPDATE t SET x = 1; COMMIT")
+        issue = rule.check(op, mock_migration)
+        assert issue is not None
+        assert issue.rule_id == "SM049"
+
+    def test_allows_in_non_atomic_migration(self):
+        """Explicit transaction control is allowed when atomic=False."""
+        from django_safe_migrations.rules.run_sql import TransactionNestingInRunSQLRule
+
+        class NonAtomic:
+            app_label = "testapp"
+            name = "0001_test"
+            atomic = False
+
+        rule = TransactionNestingInRunSQLRule()
+        op = migrations.RunSQL("BEGIN; UPDATE t SET x = 1; COMMIT")
+        assert rule.check(op, NonAtomic()) is None
+
+    def test_ignores_case_end(self, mock_migration):
+        """CASE ... END must not be mistaken for transaction control."""
+        from django_safe_migrations.rules.run_sql import TransactionNestingInRunSQLRule
+
+        rule = TransactionNestingInRunSQLRule()
+        op = migrations.RunSQL("UPDATE t SET y = CASE WHEN x THEN 1 ELSE 0 END")
+        assert rule.check(op, mock_migration) is None
+
+
+class TestConstraintMissingNotValidRule:
+    """Tests for ConstraintMissingNotValidRule (SM047)."""
+
+    def test_flags_fk_without_not_valid(self, mock_migration):
+        """ADD CONSTRAINT ... FOREIGN KEY without NOT VALID is flagged."""
+        from django_safe_migrations.rules.run_sql import ConstraintMissingNotValidRule
+
+        rule = ConstraintMissingNotValidRule()
+        op = migrations.RunSQL(
+            "ALTER TABLE orders ADD CONSTRAINT fk_u "
+            "FOREIGN KEY (uid) REFERENCES users(id)"
+        )
+        issue = rule.check(op, mock_migration, db_vendor="postgresql")
+        assert issue is not None
+        assert issue.rule_id == "SM047"
+
+    def test_allows_with_not_valid(self, mock_migration):
+        """A NOT VALID constraint is the safe pattern and is not flagged."""
+        from django_safe_migrations.rules.run_sql import ConstraintMissingNotValidRule
+
+        rule = ConstraintMissingNotValidRule()
+        op = migrations.RunSQL(
+            "ALTER TABLE orders ADD CONSTRAINT c " "CHECK (total >= 0) NOT VALID"
+        )
+        assert rule.check(op, mock_migration, db_vendor="postgresql") is None
+
+    def test_ignores_unique_constraint(self, mock_migration):
+        """A UNIQUE constraint is out of scope (no full validation scan)."""
+        from django_safe_migrations.rules.run_sql import ConstraintMissingNotValidRule
+
+        rule = ConstraintMissingNotValidRule()
+        op = migrations.RunSQL("ALTER TABLE orders ADD CONSTRAINT u UNIQUE (code)")
+        assert rule.check(op, mock_migration, db_vendor="postgresql") is None
+
+    def test_postgresql_only(self):
+        """SM047 is PostgreSQL-only."""
+        from django_safe_migrations.rules.run_sql import ConstraintMissingNotValidRule
+
+        rule = ConstraintMissingNotValidRule()
+        assert rule.applies_to_db("postgresql") is True
+        assert rule.applies_to_db("mysql") is False

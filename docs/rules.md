@@ -1700,3 +1700,113 @@ migrations.RunSQL(
     reverse_sql="DROP TABLE IF EXISTS myapp_cache;",
 )
 ```
+
+______________________________________________________________________
+
+## SM047: constraint_missing_not_valid
+
+| Field         | Value      |
+| ------------- | ---------- |
+| **Rule ID**   | SM047      |
+| **Severity**  | WARNING    |
+| **Databases** | PostgreSQL |
+
+### What it detects
+
+A `RunSQL` statement that runs `ALTER TABLE ... ADD CONSTRAINT ... CHECK` or
+`... FOREIGN KEY` without `NOT VALID`.
+
+### Why it matters
+
+Adding a CHECK or FOREIGN KEY constraint validates every existing row under an
+ACCESS EXCLUSIVE lock, blocking the table for the duration of the scan.
+
+### Safe pattern
+
+```python
+migrations.RunSQL(
+    sql=[
+        "ALTER TABLE orders ADD CONSTRAINT orders_total_check "
+        "CHECK (total >= 0) NOT VALID;",
+        "ALTER TABLE orders VALIDATE CONSTRAINT orders_total_check;",
+    ],
+    reverse_sql="ALTER TABLE orders DROP CONSTRAINT orders_total_check;",
+)
+```
+
+`NOT VALID` adds the constraint instantly (new rows are checked); the later
+`VALIDATE CONSTRAINT` scans existing rows under a weaker SHARE UPDATE EXCLUSIVE
+lock.
+
+______________________________________________________________________
+
+## SM048: truncate_in_runsql
+
+| Field         | Value   |
+| ------------- | ------- |
+| **Rule ID**   | SM048   |
+| **Severity**  | WARNING |
+| **Databases** | All     |
+
+### What it detects
+
+A `RunSQL` statement that starts with `TRUNCATE`.
+
+### Why it matters
+
+`TRUNCATE` deletes all rows in a table and is not transaction-safe to undo;
+`TRUNCATE ... CASCADE` also deletes rows from every referencing table. This is
+almost never intended inside a migration and is unrecoverable.
+
+### Safe pattern
+
+If you must remove data in a migration, delete rows explicitly and reversibly
+with a data migration, scoped to exactly the rows you mean to remove.
+
+______________________________________________________________________
+
+## SM049: transaction_nesting_in_runsql
+
+| Field         | Value |
+| ------------- | ----- |
+| **Rule ID**   | SM049 |
+| **Severity**  | ERROR |
+| **Databases** | All   |
+
+### What it detects
+
+Explicit `BEGIN`, `START TRANSACTION`, `COMMIT`, or `ROLLBACK` in a `RunSQL`
+statement when the migration is atomic (the default).
+
+### Why it matters
+
+Django already wraps an atomic migration in a transaction. Issuing your own
+transaction control creates a nested transaction, which PostgreSQL does not
+truly support — the statements error or leave the surrounding transaction in an
+unexpected state.
+
+### Safe pattern
+
+Set `atomic = False` on the migration class if you need manual transaction
+control, or remove the explicit transaction statements and let Django manage
+the transaction.
+
+______________________________________________________________________
+
+## SM050: drop_database_in_runsql
+
+| Field         | Value |
+| ------------- | ----- |
+| **Rule ID**   | SM050 |
+| **Severity**  | ERROR |
+| **Databases** | All   |
+
+### What it detects
+
+A `RunSQL` statement that starts with `DROP DATABASE` or `DROP SCHEMA`.
+
+### Why it matters
+
+Dropping a database or schema from a migration destroys the database/schema and
+all of its objects. It is catastrophic and irreversible and must never run as
+part of a migration.
