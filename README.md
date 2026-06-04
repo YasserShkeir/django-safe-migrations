@@ -65,12 +65,15 @@ Django Safe Migrations analyzes your Django migrations and warns you about opera
 | SM034   | `prefer_identity`                  | INFO     | Consider IDENTITY columns on PostgreSQL (Django < 4.0)          |
 | SM035   | `require_lock_timeout`             | INFO     | DDL in RunSQL should set lock_timeout                           |
 | SM036   | `prefer_if_exists`                 | INFO     | Use IF [NOT] EXISTS in CREATE/DROP TABLE                        |
+| SM037   | `direct_model_import_in_runpython` | INFO     | RunPython imports a model directly instead of apps.get_model()  |
+| SM038   | `mixed_schema_and_data_operations` | WARNING  | Migration mixes schema changes with data operations             |
 | SM040   | `volatile_default_with_unique`     | ERROR    | Unique field with a callable default fails on populated tables  |
 | SM041   | `adding_stored_generated_field`    | WARNING  | Adding a stored GeneratedField rewrites the table (Django 5.0+) |
 | SM047   | `constraint_missing_not_valid`     | WARNING  | RunSQL ADD CONSTRAINT (CHECK/FK) without NOT VALID (PostgreSQL) |
 | SM048   | `truncate_in_runsql`               | WARNING  | TRUNCATE in a migration deletes all table data                  |
 | SM049   | `transaction_nesting_in_runsql`    | ERROR    | Explicit BEGIN/COMMIT/ROLLBACK in RunSQL in an atomic migration |
 | SM050   | `drop_database_in_runsql`          | ERROR    | DROP DATABASE/SCHEMA in a migration is catastrophic             |
+| SM054   | `multiple_heavy_ops_same_table`    | INFO     | 3+ heavy schema operations on one table in a migration          |
 | SM056   | `adding_exclusion_constraint`      | WARNING  | Exclusion constraint scans the whole table (PostgreSQL)         |
 
 ## Installation

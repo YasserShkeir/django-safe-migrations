@@ -12,6 +12,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Django-version gating for rules.** Rules may declare a
   `django_min_version` and are skipped when the installed Django is older —
   groundwork for version-specific rules.
+- **Migration-level rules.** Rules may implement `check_migration(migration)`,
+  run once per migration over all operations, enabling cross-operation checks.
+- **SM037** `direct_model_import_in_runpython` (INFO): a RunPython function that
+  imports a model directly instead of using `apps.get_model()` breaks on a
+  fresh database.
+- **SM038** `mixed_schema_and_data_operations` (WARNING): mixing schema changes
+  and data operations (RunPython / RunSQL DML) in one migration extends lock
+  duration.
+- **SM054** `multiple_heavy_ops_same_table` (INFO): three or more heavy schema
+  operations on the same table in one migration hold the lock for their
+  combined duration.
 - **SM047** `constraint_missing_not_valid` (WARNING, PostgreSQL): RunSQL that
   adds a CHECK/FOREIGN KEY constraint without `NOT VALID` scans the whole table
   under an ACCESS EXCLUSIVE lock.

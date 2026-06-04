@@ -99,11 +99,21 @@ RULE_CATEGORIES: dict[str, list[str]] = {
         "SM030",
         "SM041",
         "SM047",
+        "SM054",
         "SM056",
     ],
     "data-loss": ["SM002", "SM003", "SM009", "SM029", "SM040", "SM048", "SM050"],
     "reversibility": ["SM007", "SM016", "SM017", "SM049"],
-    "data-migrations": ["SM007", "SM008", "SM016", "SM017", "SM022", "SM026"],
+    "data-migrations": [
+        "SM007",
+        "SM008",
+        "SM016",
+        "SM017",
+        "SM022",
+        "SM026",
+        "SM037",
+        "SM038",
+    ],
     "security": ["SM024"],
     # Severity-based categories
     "high-risk": [
@@ -150,9 +160,10 @@ RULE_CATEGORIES: dict[str, list[str]] = {
         "SM028",
         "SM029",
         "SM033",
+        "SM038",
         "SM041",
     ],
-    "performance": ["SM022", "SM025", "SM026", "SM028", "SM033", "SM041"],
+    "performance": ["SM022", "SM025", "SM026", "SM028", "SM033", "SM041", "SM054"],
 }
 
 # Default configuration values

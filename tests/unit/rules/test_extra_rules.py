@@ -224,8 +224,8 @@ class TestAllRulesRegistry:
 
     def test_all_rules_contains_expected_count(self):
         """Test ALL_RULES contains expected number of rules."""
-        # SM001-SM036 plus v0.7.0 rules SM040/041/047-050/056.
-        assert len(ALL_RULES) == 43
+        # SM001-SM036 plus v0.7.0 rules SM037/038/040/041/047-050/054/056.
+        assert len(ALL_RULES) == 46
 
     def test_all_rules_have_unique_ids(self):
         """Test all rules have unique IDs."""

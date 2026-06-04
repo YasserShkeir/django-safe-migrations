@@ -1885,3 +1885,81 @@ Unlike CHECK and FOREIGN KEY constraints, an exclusion constraint cannot be
 added `NOT VALID`. Adding one to a populated table always requires a full table
 scan under an ACCESS EXCLUSIVE lock — there is no safe incremental approach.
 Add it when the table is created, or plan for the lock.
+
+______________________________________________________________________
+
+## SM037: direct_model_import_in_runpython
+
+| Field         | Value |
+| ------------- | ----- |
+| **Rule ID**   | SM037 |
+| **Severity**  | INFO  |
+| **Databases** | All   |
+
+### What it detects
+
+A `RunPython` function whose source imports a model directly
+(`from app.models import MyModel`) instead of using
+`apps.get_model('app', 'MyModel')`, and does not call `apps.get_model`.
+
+### Why it matters
+
+A direct import uses the *current* model class rather than the historical
+version at migration time. It works initially but breaks when the migration is
+re-run against a fresh database that applies all migrations in order.
+
+### Safe pattern
+
+```python
+def populate(apps, schema_editor):
+    MyModel = apps.get_model("app", "MyModel")
+    MyModel.objects.filter(...).update(...)
+```
+
+______________________________________________________________________
+
+## SM038: mixed_schema_and_data_operations
+
+| Field         | Value   |
+| ------------- | ------- |
+| **Rule ID**   | SM038   |
+| **Severity**  | WARNING |
+| **Databases** | All     |
+
+### What it detects
+
+A single migration that contains both schema operations (AddField, AlterField,
+…) and data operations (RunPython, or RunSQL containing INSERT/UPDATE/DELETE).
+
+### Why it matters
+
+The data step runs inside the same migration (and often the same transaction)
+as the schema change, extending how long the schema lock is held; on PostgreSQL
+it can raise `cannot ALTER TABLE because it has pending trigger events`.
+
+### Safe pattern
+
+Put the schema change in one migration and the data backfill in a separate
+migration that runs afterward.
+
+______________________________________________________________________
+
+## SM054: multiple_heavy_ops_same_table
+
+| Field         | Value |
+| ------------- | ----- |
+| **Rule ID**   | SM054 |
+| **Severity**  | INFO  |
+| **Databases** | All   |
+
+### What it detects
+
+Three or more heavy schema operations (AddField, RemoveField, AlterField,
+AddIndex, RemoveIndex, AddConstraint, RemoveConstraint) targeting the same table
+in one migration.
+
+### Why it matters
+
+The table lock is held for the combined duration of all the operations.
+Splitting them into separate migrations shortens each lock window and reduces
+deadlock risk.

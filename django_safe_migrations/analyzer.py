@@ -176,6 +176,26 @@ class MigrationAnalyzer:
                         issues=issues,
                     )
 
+        # Migration-level rules: run once per migration over all operations.
+        for rule in self.rules:
+            if not self._is_rule_enabled(rule.rule_id, app_label):
+                continue
+            if not rule.applies_to_db(self.db_vendor):
+                continue
+            if not rule.applies_to_django():
+                continue
+            for issue in rule.check_migration(migration):
+                issue.severity = get_rule_severity_for_app(
+                    issue.rule_id, issue.severity, app_label
+                )
+                if issue.file_path is None:
+                    issue.file_path = file_path
+                if issue.app_label is None:
+                    issue.app_label = app_label
+                if issue.migration_name is None:
+                    issue.migration_name = migration_name
+                issues.append(issue)
+
         logger.debug(
             "Migration %s.%s analysis complete: %d issues found",
             app_label,
