@@ -518,6 +518,29 @@ cannot be reversed *at all*. Operations whose reverse would need to reconstruct
 lost state (`RemoveField`, `DeleteModel`, `AlterField`) are intentionally out of
 scope to avoid guessing.
 
+### `--classify-phase`
+
+Classify each migration into a deployment **phase** to help order
+expand–contract (blue-green / rolling) deploys, then exit. No safety analysis is
+run and the exit code is always `0`:
+
+```bash
+python manage.py check_migrations --classify-phase
+python manage.py check_migrations --classify-phase --format=json
+```
+
+| Phase      | Operations                                             | Deploy…             |
+| ---------- | ------------------------------------------------------ | ------------------- |
+| `expand`   | `AddField`, `CreateModel`, `AddIndex`, `AddConstraint` | before the new code |
+| `contract` | `RemoveField`, `DeleteModel`, `Rename*`, `AlterField`  | after the new code  |
+| `data`     | `RunPython`, `RunSQL`                                  | per data plan       |
+| `mixed`    | more than one of the above                             | split it first      |
+| `empty`    | only Python-only changes (e.g. `AlterModelOptions`)    | anytime             |
+
+`--classify-phase` honours app-label arguments and `--exclude-apps`. The phase
+of an in-place `AlterField` is heuristic — it is reported as `contract` (the
+conservative "deploy after code" choice).
+
 ### `--baseline`
 
 Exclude issues that are present in a baseline file:

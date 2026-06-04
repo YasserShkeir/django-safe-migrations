@@ -462,6 +462,7 @@ django_safe_migrations/
 ├── apps.py                  # Django AppConfig
 ├── baseline.py              # Baseline support for suppressing known issues
 ├── cache.py                 # Opt-in result cache (dependency-aware, fingerprinted)
+├── classify.py              # Deployment-phase classification (--classify-phase)
 ├── cli.py                   # Standalone CLI
 ├── conf.py                  # Configuration handling
 ├── diff.py                  # Git-based diff mode for checking only changed migrations

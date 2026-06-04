@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`AddIndex` → `DROP INDEX`), `RV004` (`AddConstraint` → `DROP CONSTRAINT`).
   Distinct from `SM007`/`SM016` (which flag operations that cannot be reversed
   at all); fires only when the flag is given.
+- **`--classify-phase`.** Classify each migration into a deployment phase —
+  `expand` (additive), `contract` (destructive / in-place), `data`
+  (`RunPython`/`RunSQL`), `mixed`, or `empty` — to support expand–contract
+  (blue-green / rolling) deploys. Informational report mode (console or
+  `--format=json`); always exits 0.
 
 ## [0.7.0] - 2026-06-04
 

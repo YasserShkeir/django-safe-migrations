@@ -177,6 +177,14 @@ class Command(BaseCommand):
                 "operations (RV0xx issues)"
             ),
         )
+        parser.add_argument(
+            "--classify-phase",
+            action="store_true",
+            help=(
+                "Classify each migration's deployment phase "
+                "(expand/contract/data/mixed) and exit"
+            ),
+        )
 
     def list_rules(self, output_format: str) -> None:
         """List all available rules.
@@ -312,6 +320,16 @@ class Command(BaseCommand):
                 "staticfiles",
             ]
             exclude_apps = list(set(exclude_apps + django_apps))
+
+        # Handle --classify-phase: report deployment phases and exit.
+        if options.get("classify_phase"):
+            from django_safe_migrations.classify import classify_all, render_report
+
+            results = classify_all(
+                app_labels=list(app_labels) or None, exclude_apps=exclude_apps
+            )
+            render_report(results, output_format, self.stdout)
+            return
 
         # Create analyzer
         analyzer = MigrationAnalyzer(
