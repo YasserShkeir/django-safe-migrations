@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **SM054** `multiple_heavy_ops_same_table` (INFO): three or more heavy schema
   operations on the same table in one migration hold the lock for their
   combined duration.
+- **SM042** `alter_composite_primary_key` (ERROR, Django 5.2+): Django cannot
+  migrate a table to/from a `CompositePrimaryKey` after creation — the
+  generated migration fails at `migrate` time.
 - **SM047** `constraint_missing_not_valid` (WARNING, PostgreSQL): RunSQL that
   adds a CHECK/FOREIGN KEY constraint without `NOT VALID` scans the whole table
   under an ACCESS EXCLUSIVE lock.

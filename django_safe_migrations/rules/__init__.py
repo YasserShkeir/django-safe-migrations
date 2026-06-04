@@ -24,6 +24,7 @@ from django_safe_migrations.rules.add_index import (
 from django_safe_migrations.rules.alter_field import (
     AddForeignKeyValidatesRule,
     AlterColumnTypeRule,
+    AlterCompositePrimaryKeyRule,
     AlterFieldNullFalseRule,
     AlterFieldUniqueRule,
     AlterVarcharLengthRule,
@@ -128,6 +129,7 @@ __all__ = [
     "DirectModelImportInRunPythonRule",
     "MixedSchemaAndDataRule",
     "MultipleHeavyOpsSameTableRule",
+    "AlterCompositePrimaryKeyRule",
     # Functions
     "get_all_rules",
     "get_rules_for_db",
@@ -193,6 +195,7 @@ ALL_RULES: list[type[BaseRule]] = [
     DirectModelImportInRunPythonRule,  # SM037
     MixedSchemaAndDataRule,  # SM038
     MultipleHeavyOpsSameTableRule,  # SM054
+    AlterCompositePrimaryKeyRule,  # SM042
 ]
 
 logger = logging.getLogger("django_safe_migrations")

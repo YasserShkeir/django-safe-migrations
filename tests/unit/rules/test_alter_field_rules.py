@@ -888,3 +888,46 @@ class TestSmartColumnTypeChanges:
         )
         assert issue is not None
         assert issue.rule_id == "SM004"
+
+
+class TestAlterCompositePrimaryKeyRule:
+    """Tests for AlterCompositePrimaryKeyRule (SM042)."""
+
+    def test_flags_alter_to_composite_pk(self, mock_migration):
+        """An AlterField to a CompositePrimaryKey is flagged."""
+        from django_safe_migrations.rules.alter_field import (
+            AlterCompositePrimaryKeyRule,
+        )
+
+        # Stand-in matching the class name the rule checks (version-independent).
+        class CompositePrimaryKey:
+            pass
+
+        rule = AlterCompositePrimaryKeyRule()
+        op = migrations.AlterField(
+            model_name="order", name="pk", field=CompositePrimaryKey()
+        )
+        issue = rule.check(op, mock_migration)
+        assert issue is not None
+        assert issue.rule_id == "SM042"
+        assert issue.severity == Severity.ERROR
+
+    def test_ignores_normal_alter_field(self, mock_migration):
+        """A normal AlterField is not flagged."""
+        from django_safe_migrations.rules.alter_field import (
+            AlterCompositePrimaryKeyRule,
+        )
+
+        rule = AlterCompositePrimaryKeyRule()
+        op = migrations.AlterField(
+            model_name="order", name="total", field=models.IntegerField()
+        )
+        assert rule.check(op, mock_migration) is None
+
+    def test_requires_django_5_2(self):
+        """SM042 declares a Django 5.2 minimum."""
+        from django_safe_migrations.rules.alter_field import (
+            AlterCompositePrimaryKeyRule,
+        )
+
+        assert AlterCompositePrimaryKeyRule().django_min_version == (5, 2)

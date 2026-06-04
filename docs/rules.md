@@ -1963,3 +1963,31 @@ in one migration.
 The table lock is held for the combined duration of all the operations.
 Splitting them into separate migrations shortens each lock window and reduces
 deadlock risk.
+
+______________________________________________________________________
+
+## SM042: alter_composite_primary_key
+
+| Field         | Value |
+| ------------- | ----- |
+| **Rule ID**   | SM042 |
+| **Severity**  | ERROR |
+| **Databases** | All   |
+| **Django**    | 5.2+  |
+
+### What it detects
+
+An `AddField` or `AlterField` whose field is a `CompositePrimaryKey` on an
+existing model.
+
+### Why it matters
+
+Django 5.2 supports `CompositePrimaryKey`, but it does **not** support migrating
+a table to (or from) a composite primary key after the table is created.
+`makemigrations` will generate the operation, but `migrate` will fail.
+
+### Safe pattern
+
+Define the composite primary key when the model is first created. To change an
+existing table, recreate it (e.g. via `SeparateDatabaseAndState` plus raw SQL)
+during a planned migration.

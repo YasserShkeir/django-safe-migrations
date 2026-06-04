@@ -982,3 +982,46 @@ class DropNotNullRule(BaseRule):
        ...
    )
 """
+
+
+class AlterCompositePrimaryKeyRule(BaseRule):
+    """Detect migrating an existing model to a CompositePrimaryKey.
+
+    Django 5.2 added ``CompositePrimaryKey``, but it does not support migrating
+    a table *to* (or *from*) a composite primary key after the table has been
+    created. ``makemigrations`` will happily generate an ``AlterField`` /
+    ``AddField`` for it, but ``migrate`` then fails. A composite primary key
+    must be defined when the model is first created.
+    """
+
+    rule_id = "SM042"
+    severity = Severity.ERROR
+    description = "Migrating to a CompositePrimaryKey after table creation fails"
+    django_min_version = (5, 2)
+
+    def check(
+        self,
+        operation: Operation,
+        migration: Migration,
+        **kwargs: object,
+    ) -> Optional[Issue]:
+        """Flag an AddField/AlterField whose field is a CompositePrimaryKey."""
+        if not isinstance(operation, (migrations.AddField, migrations.AlterField)):
+            return None
+
+        field = getattr(operation, "field", None)
+        # Match by class name so the rule needs no Django 5.2-only import.
+        if field is not None and type(field).__name__ == "CompositePrimaryKey":
+            return self.create_issue(
+                operation=operation,
+                migration=migration,
+                message=(
+                    f"Operation sets a CompositePrimaryKey on existing model "
+                    f"'{getattr(operation, 'model_name', '?')}'. Django does not "
+                    "support migrating to or from a composite primary key after "
+                    "the table is created — this will fail at migrate time. "
+                    "Define the composite primary key when the model is first "
+                    "created (or recreate the table via SeparateDatabaseAndState)."
+                ),
+            )
+        return None

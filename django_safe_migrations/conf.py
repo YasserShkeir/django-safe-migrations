@@ -130,6 +130,7 @@ RULE_CATEGORIES: dict[str, list[str]] = {
         "SM027",
         "SM030",
         "SM040",
+        "SM042",
         "SM049",
         "SM050",
     ],
@@ -163,6 +164,7 @@ RULE_CATEGORIES: dict[str, list[str]] = {
         "SM033",
         "SM038",
         "SM041",
+        "SM042",
     ],
     "performance": ["SM022", "SM025", "SM026", "SM028", "SM033", "SM041", "SM054"],
 }
