@@ -330,17 +330,19 @@ class TestAddExclusionConstraintRule:
 
     def test_flags_exclusion_constraint(self, mock_migration):
         """Adding an ExclusionConstraint is flagged."""
-        from django.contrib.postgres.constraints import ExclusionConstraint
-        from django.contrib.postgres.fields import RangeOperators
         from django.db import migrations
 
         from django_safe_migrations.rules.constraints import AddExclusionConstraintRule
 
+        # The rule matches by class name, so a stand-in avoids importing
+        # django.contrib.postgres (which requires psycopg to be installed).
+        class ExclusionConstraint:
+            name = "excl"
+
         rule = AddExclusionConstraintRule()
-        constraint = ExclusionConstraint(
-            name="excl", expressions=[("room", RangeOperators.EQUAL)]
+        op = migrations.AddConstraint(
+            model_name="booking", constraint=ExclusionConstraint()
         )
-        op = migrations.AddConstraint(model_name="booking", constraint=constraint)
         issue = rule.check(op, mock_migration, db_vendor="postgresql")
         assert issue is not None
         assert issue.rule_id == "SM056"

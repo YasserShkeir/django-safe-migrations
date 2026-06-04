@@ -1,5 +1,7 @@
 """Tests for AddField rules."""
 
+import django
+import pytest
 from django.db import migrations, models
 
 from django_safe_migrations.rules.add_field import NotNullWithoutDefaultRule
@@ -1153,6 +1155,9 @@ class TestVolatileDefaultWithUniqueRule:
 class TestAddStoredGeneratedFieldRule:
     """Tests for AddStoredGeneratedFieldRule (SM041)."""
 
+    @pytest.mark.skipif(
+        django.VERSION < (5, 0), reason="GeneratedField requires Django 5.0+"
+    )
     def test_flags_stored_generated_field(self, mock_migration):
         """A stored (db_persist=True) GeneratedField is flagged."""
         from django.db.models import GeneratedField
@@ -1170,6 +1175,9 @@ class TestAddStoredGeneratedFieldRule:
         assert issue is not None
         assert issue.rule_id == "SM041"
 
+    @pytest.mark.skipif(
+        django.VERSION < (5, 0), reason="GeneratedField requires Django 5.0+"
+    )
     def test_allows_virtual_generated_field(self, mock_migration):
         """A virtual (db_persist=False) GeneratedField is not flagged."""
         from django.db.models import GeneratedField
