@@ -374,6 +374,26 @@ class TestCommandOptions:
         data = json.loads(out.getvalue())
         assert not any(i["rule_id"].startswith("RV") for i in data["issues"])
 
+    def test_classify_phase_json(self):
+        """--classify-phase emits per-migration phases and exits 0 (no analysis)."""
+        out = StringIO()
+        # Informational mode: must not raise SystemExit even though testapp has
+        # unsafe migrations.
+        call_command(
+            "check_migrations",
+            "testapp",
+            format="json",
+            classify_phase=True,
+            stdout=out,
+        )
+        data = json.loads(out.getvalue())
+        assert "migrations" in data
+        assert data["migrations"], "expected classified migrations"
+        valid = {"expand", "contract", "data", "mixed", "empty"}
+        for m in data["migrations"]:
+            assert m["app_label"] == "testapp"
+            assert m["phase"] in valid
+
     def test_exclude_apps_removes_detection(self):
         """Test --exclude-apps properly excludes apps from analysis."""
         out = StringIO()

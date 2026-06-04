@@ -131,6 +131,9 @@ python manage.py check_migrations --cache
 # Reverse safety - check whether rolling back is destructive
 python manage.py check_migrations --check-reverse
 
+# Deployment phase - classify migrations as expand/contract/data
+python manage.py check_migrations --classify-phase
+
 # Baseline - suppress existing issues
 python manage.py check_migrations --generate-baseline .migration-baseline.json
 python manage.py check_migrations --baseline .migration-baseline.json
@@ -243,6 +246,7 @@ repos:
 | `--cache`                  | Cache results to speed up repeat runs (`.dsm_cache.json`)     |
 | `--cache-file PATH`        | Use a custom cache file path (implies `--cache`)              |
 | `--check-reverse`          | Also check the rollback path for destructive ops (RV0xx)      |
+| `--classify-phase`         | Classify migrations as expand/contract/data/mixed and exit    |
 | `--baseline FILE`          | Exclude issues present in baseline file                       |
 | `--generate-baseline FILE` | Generate baseline file from current issues                    |
 | `--interactive`            | Interactively review each issue                               |

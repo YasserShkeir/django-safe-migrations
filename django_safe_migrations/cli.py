@@ -269,6 +269,14 @@ Documentation: https://django-safe-migrations.readthedocs.io/
             "operations (RV0xx issues)"
         ),
     )
+    parser.add_argument(
+        "--classify-phase",
+        action="store_true",
+        help=(
+            "Classify each migration's deployment phase "
+            "(expand/contract/data/mixed) and exit"
+        ),
+    )
 
     args: Namespace = parser.parse_args(argv)
 
@@ -321,6 +329,16 @@ Documentation: https://django-safe-migrations.readthedocs.io/
             "staticfiles",
         ]
         exclude_apps = list(set(exclude_apps + django_apps))
+
+    # Handle --classify-phase: report deployment phases and exit (no analysis).
+    if args.classify_phase:
+        from django_safe_migrations.classify import classify_all, render_report
+
+        results = classify_all(
+            app_labels=list(args.app_labels) or None, exclude_apps=exclude_apps
+        )
+        render_report(results, args.format, sys.stdout)
+        return 0
 
     # Create analyzer
     db_vendor_override = args.database_vendor or get_database_vendor()
