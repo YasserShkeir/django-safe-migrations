@@ -461,6 +461,7 @@ django_safe_migrations/
 ├── analyzer.py              # Core MigrationAnalyzer
 ├── apps.py                  # Django AppConfig
 ├── baseline.py              # Baseline support for suppressing known issues
+├── cache.py                 # Opt-in result cache (dependency-aware, fingerprinted)
 ├── cli.py                   # Standalone CLI
 ├── conf.py                  # Configuration handling
 ├── diff.py                  # Git-based diff mode for checking only changed migrations

@@ -318,6 +318,33 @@ class TestCommandOptions:
         assert exc.value.code == 2
         assert "only one of" in err.getvalue().lower()
 
+    def test_cache_file_written_and_reused(self, tmp_path):
+        """--cache-file writes a cache file and a second run reuses it."""
+        cache_file = tmp_path / "dsm.json"
+
+        def run():
+            out = StringIO()
+            try:
+                call_command(
+                    "check_migrations",
+                    "testapp",
+                    format="json",
+                    cache_file=str(cache_file),
+                    stdout=out,
+                )
+            except SystemExit:
+                pass
+            return json.loads(out.getvalue())
+
+        first = run()
+        assert cache_file.exists()
+        cached = json.loads(cache_file.read_text())
+        assert cached["entries"]  # something got cached
+
+        # Second run produces identical results (served from cache).
+        second = run()
+        assert first["issues"] == second["issues"]
+
     def test_exclude_apps_removes_detection(self):
         """Test --exclude-apps properly excludes apps from analysis."""
         out = StringIO()
