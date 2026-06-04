@@ -34,8 +34,11 @@ class TestSetupDjango:
         assert "boom" in err
 
     def test_cleans_up_env_when_module_not_set(self, monkeypatch):
-        """When no module is set and no candidate works, the probe env var is
-        cleaned up and setup_django returns False."""
+        """The probe env var is cleaned up when no module works.
+
+        When no module is set and no candidate succeeds, ``setup_django``
+        returns False and removes the temporary ``DJANGO_SETTINGS_MODULE``.
+        """
         monkeypatch.delenv("DJANGO_SETTINGS_MODULE", raising=False)
         import django
 
@@ -66,8 +69,11 @@ class TestMain:
         assert any(rule["rule_id"] == "SM001" for rule in data)
 
     def test_no_misleading_hint_when_module_is_set(self, monkeypatch, capsys):
-        """When DJANGO_SETTINGS_MODULE is set but setup fails, main() exits 1
-        without printing the 'please set DJANGO_SETTINGS_MODULE' hint."""
+        """No misleading hint is shown when the module is set.
+
+        When ``DJANGO_SETTINGS_MODULE`` is set but setup fails, ``main()``
+        exits 1 without printing the "please set it" hint.
+        """
         monkeypatch.setenv("DJANGO_SETTINGS_MODULE", "broken.settings")
         monkeypatch.setattr(cli, "setup_django", lambda: False)
 
@@ -78,8 +84,11 @@ class TestMain:
         assert "Please set" not in err
 
     def test_hint_shown_when_module_not_set(self, monkeypatch, capsys):
-        """When DJANGO_SETTINGS_MODULE is not set and setup fails, main() shows
-        the helpful hint."""
+        """The hint is shown when the module is not set.
+
+        When ``DJANGO_SETTINGS_MODULE`` is unset and setup fails, ``main()``
+        prints the helpful hint.
+        """
         monkeypatch.delenv("DJANGO_SETTINGS_MODULE", raising=False)
         monkeypatch.setattr(cli, "setup_django", lambda: False)
 
