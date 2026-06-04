@@ -14,6 +14,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   groundwork for version-specific rules.
 - **Migration-level rules.** Rules may implement `check_migration(migration)`,
   run once per migration over all operations, enabling cross-operation checks.
+- **`pyproject.toml` configuration.** A `[tool.django_safe_migrations]` section
+  is read as an alternative to the `SAFE_MIGRATIONS` Django setting (settings
+  take precedence). Useful for CLI / pre-commit usage. Requires Python 3.11+ or
+  the `tomli` package.
+- **`--database-vendor` / `DATABASE_VENDOR`.** Override the auto-detected
+  database vendor so you can develop on SQLite but lint for PostgreSQL.
+- **`--warnings-as-errors` / `WARNINGS_AS_ERRORS`.** Promote specific
+  warning-level rules to build failures (more granular than `--fail-on-warning`).
 - **SM037** `direct_model_import_in_runpython` (INFO): a RunPython function that
   imports a model directly instead of using `apps.get_model()` breaks on a
   fresh database.

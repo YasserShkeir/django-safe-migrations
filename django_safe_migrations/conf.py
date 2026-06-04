@@ -43,7 +43,8 @@ Example::
 from __future__ import annotations
 
 import logging
-from typing import Any
+from functools import lru_cache
+from typing import Any, Optional
 
 from django.conf import settings
 
@@ -183,7 +184,39 @@ DEFAULTS: dict[str, Any] = {
     "FAIL_ON_WARNING": False,
     "APP_RULES": {},  # Per-app rule configuration
     "EXTRA_RULES": [],  # Custom rule class paths to load
+    "DATABASE_VENDOR": None,  # Override auto-detected DB vendor
+    "WARNINGS_AS_ERRORS": [],  # Rule IDs whose warnings fail the build
 }
+
+
+def _read_pyproject_section(path: str = "pyproject.toml") -> dict[str, Any]:
+    """Read ``[tool.django_safe_migrations]`` from a pyproject.toml file.
+
+    Keys are upper-cased to match the ``SAFE_MIGRATIONS`` setting keys
+    (e.g. ``disabled_rules`` -> ``DISABLED_RULES``). Returns ``{}`` when the
+    file or section is absent, or when no TOML parser is available
+    (Python < 3.11 without ``tomli`` installed).
+    """
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # Python < 3.11
+        try:
+            import tomli as tomllib
+        except ModuleNotFoundError:
+            return {}
+    try:
+        with open(path, "rb") as fh:
+            data = tomllib.load(fh)
+    except (FileNotFoundError, OSError, ValueError):
+        return {}
+    section = data.get("tool", {}).get("django_safe_migrations", {})
+    return {str(key).upper(): value for key, value in section.items()}
+
+
+@lru_cache(maxsize=1)
+def load_pyproject_config() -> dict[str, Any]:
+    """Load the cached ``[tool.django_safe_migrations]`` pyproject config."""
+    return _read_pyproject_section()
 
 
 def get_config() -> dict[str, Any]:
@@ -195,10 +228,24 @@ def get_config() -> dict[str, Any]:
     """
     user_config = getattr(settings, "SAFE_MIGRATIONS", {})
 
+    # Precedence: defaults < pyproject.toml < Django settings.
     config = DEFAULTS.copy()
+    config.update(load_pyproject_config())
     config.update(user_config)
 
     return config
+
+
+def get_database_vendor() -> Optional[str]:
+    """Get the configured database-vendor override, or None for auto-detect."""
+    vendor = get_config().get("DATABASE_VENDOR")
+    return str(vendor) if vendor else None
+
+
+def get_warnings_as_errors() -> list[str]:
+    """Get the list of rule IDs whose warnings should fail the build."""
+    value = get_config().get("WARNINGS_AS_ERRORS", [])
+    return list(value) if value else []
 
 
 def get_disabled_rules() -> list[str]:
