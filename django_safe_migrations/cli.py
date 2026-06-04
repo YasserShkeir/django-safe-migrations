@@ -42,12 +42,20 @@ def setup_django() -> bool:
             del os.environ["DJANGO_SETTINGS_MODULE"]
         return False
 
+    # DJANGO_SETTINGS_MODULE is explicitly set: surface the real error instead
+    # of failing silently with a misleading "please set DJANGO_SETTINGS_MODULE".
     try:
         import django
 
         django.setup()
         return True
-    except Exception:
+    except Exception as exc:  # noqa: BLE001
+        print(
+            f"Error: failed to configure Django with "
+            f"DJANGO_SETTINGS_MODULE='{settings_module}': "
+            f"{type(exc).__name__}: {exc}",
+            file=sys.stderr,
+        )
         return False
 
 
@@ -220,13 +228,16 @@ Documentation: https://django-safe-migrations.readthedocs.io/
     if args.list_rules:
         return list_rules(args.format)
 
-    # Setup Django
+    # Setup Django. When DJANGO_SETTINGS_MODULE was explicitly set,
+    # setup_django() already reported the underlying error; only show the
+    # "please set it" hint when it is genuinely not set.
     if not setup_django():
-        print(
-            "Error: Could not configure Django. "
-            "Please set DJANGO_SETTINGS_MODULE environment variable.",
-            file=sys.stderr,
-        )
+        if not os.environ.get("DJANGO_SETTINGS_MODULE"):
+            print(
+                "Error: Could not configure Django. "
+                "Please set the DJANGO_SETTINGS_MODULE environment variable.",
+                file=sys.stderr,
+            )
         return 1
 
     # Import after Django setup
