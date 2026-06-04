@@ -224,8 +224,8 @@ class TestAllRulesRegistry:
 
     def test_all_rules_contains_expected_count(self):
         """Test ALL_RULES contains expected number of rules."""
-        # v0.5.0 has 36 built-in rules (SM001-SM036)
-        assert len(ALL_RULES) == 36
+        # SM001-SM036 plus the v0.7.0 RunSQL safety rules SM047-SM050.
+        assert len(ALL_RULES) == 40
 
     def test_all_rules_have_unique_ids(self):
         """Test all rules have unique IDs."""

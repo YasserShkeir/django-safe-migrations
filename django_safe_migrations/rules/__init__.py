@@ -46,6 +46,8 @@ from django_safe_migrations.rules.remove_field import (
     DropTableUnsafeRule,
 )
 from django_safe_migrations.rules.run_sql import (
+    ConstraintMissingNotValidRule,
+    DropDatabaseInRunSQLRule,
     EnumAddValueInTransactionRule,
     LargeDataMigrationRule,
     PreferIfExistsRule,
@@ -54,6 +56,8 @@ from django_safe_migrations.rules.run_sql import (
     RunPythonWithoutReverseRule,
     RunSQLWithoutReverseRule,
     SQLInjectionPatternRule,
+    TransactionNestingInRunSQLRule,
+    TruncateInRunSQLRule,
 )
 
 __all__ = [
@@ -106,6 +110,10 @@ __all__ = [
     "PreferIdentityRule",
     "RequireLockTimeoutRule",
     "PreferIfExistsRule",
+    "TruncateInRunSQLRule",
+    "DropDatabaseInRunSQLRule",
+    "TransactionNestingInRunSQLRule",
+    "ConstraintMissingNotValidRule",
     # Functions
     "get_all_rules",
     "get_rules_for_db",
@@ -161,6 +169,10 @@ ALL_RULES: list[type[BaseRule]] = [
     PreferIdentityRule,  # SM034
     RequireLockTimeoutRule,  # SM035
     PreferIfExistsRule,  # SM036
+    ConstraintMissingNotValidRule,  # SM047
+    TruncateInRunSQLRule,  # SM048
+    TransactionNestingInRunSQLRule,  # SM049
+    DropDatabaseInRunSQLRule,  # SM050
 ]
 
 logger = logging.getLogger("django_safe_migrations")

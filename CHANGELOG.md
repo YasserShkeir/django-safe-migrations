@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Django-version gating for rules.** Rules may declare a
+  `django_min_version` and are skipped when the installed Django is older —
+  groundwork for version-specific rules.
+- **SM047** `constraint_missing_not_valid` (WARNING, PostgreSQL): RunSQL that
+  adds a CHECK/FOREIGN KEY constraint without `NOT VALID` scans the whole table
+  under an ACCESS EXCLUSIVE lock.
+- **SM048** `truncate_in_runsql` (WARNING): `TRUNCATE` in a migration deletes
+  all table data (and `CASCADE` deletes from referencing tables).
+- **SM049** `transaction_nesting_in_runsql` (ERROR): explicit
+  `BEGIN`/`COMMIT`/`ROLLBACK` in RunSQL inside an atomic migration creates a
+  nested transaction.
+- **SM050** `drop_database_in_runsql` (ERROR): `DROP DATABASE`/`DROP SCHEMA` in
+  a migration is catastrophic.
+
 ## [0.6.3] - 2026-06-04
 
 ### Fixed

@@ -94,6 +94,8 @@ class BaseRule(ABC):
     severity: Severity
     description: str
     db_vendors: list[str] = []  # Empty means all databases
+    # Minimum Django version this rule applies to, e.g. (5, 0). None = all.
+    django_min_version: Optional[tuple[int, ...]] = None
 
     @abstractmethod
     def check(
@@ -137,6 +139,19 @@ class BaseRule(ABC):
         if not self.db_vendors:
             return True
         return db_vendor in self.db_vendors
+
+    def applies_to_django(self) -> bool:
+        """Check if this rule applies to the installed Django version.
+
+        Returns:
+            True if ``django_min_version`` is None or the installed Django is
+            at least that version, False otherwise.
+        """
+        if self.django_min_version is None:
+            return True
+        import django
+
+        return django.VERSION[: len(self.django_min_version)] >= self.django_min_version
 
     def create_issue(
         self,

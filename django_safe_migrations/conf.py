@@ -67,13 +67,22 @@ RULE_CATEGORIES: dict[str, list[str]] = {
         "SM030",
         "SM031",
         "SM034",
+        "SM047",
     ],
     "mysql": [],  # Currently no MySQL-specific rules
     "sqlite": [],  # Currently no SQLite-specific rules
     # Operation type categories
     "indexes": ["SM010", "SM011", "SM018", "SM021", "SM030"],
-    "constraints": ["SM009", "SM011", "SM015", "SM017", "SM020", "SM021"],
-    "destructive": ["SM002", "SM003", "SM009"],
+    "constraints": [
+        "SM009",
+        "SM011",
+        "SM015",
+        "SM017",
+        "SM020",
+        "SM021",
+        "SM047",
+    ],
+    "destructive": ["SM002", "SM003", "SM009", "SM048", "SM050"],
     "relations": ["SM005", "SM023", "SM025"],
     # Safety concern categories
     "locking": [
@@ -85,9 +94,10 @@ RULE_CATEGORIES: dict[str, list[str]] = {
         "SM020",
         "SM021",
         "SM030",
+        "SM047",
     ],
-    "data-loss": ["SM002", "SM003", "SM009", "SM029"],
-    "reversibility": ["SM007", "SM016", "SM017"],
+    "data-loss": ["SM002", "SM003", "SM009", "SM029", "SM048", "SM050"],
+    "reversibility": ["SM007", "SM016", "SM017", "SM049"],
     "data-migrations": ["SM007", "SM008", "SM016", "SM017", "SM022", "SM026"],
     "security": ["SM024"],
     # Severity-based categories
@@ -103,6 +113,8 @@ RULE_CATEGORIES: dict[str, list[str]] = {
         "SM024",
         "SM027",
         "SM030",
+        "SM049",
+        "SM050",
     ],
     "informational": [
         "SM006",
