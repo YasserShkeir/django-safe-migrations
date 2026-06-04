@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import sys
 from typing import TYPE_CHECKING, Any, Optional
@@ -58,6 +59,7 @@ class MigrationAnalyzer:
         db_vendor: Optional[str] = None,
         disabled_rules: Optional[list[str]] = None,
         verbose: bool = False,
+        cache: Optional[Any] = None,
     ):
         """Initialize the analyzer.
 
@@ -69,10 +71,17 @@ class MigrationAnalyzer:
             disabled_rules: List of rule IDs to disable. If None, uses
                            SAFE_MIGRATIONS["DISABLED_RULES"] from settings.
             verbose: If True, print progress information to stderr.
+            cache: Optional ``AnalysisCache``. When set, each migration's
+                   issues are served from / stored to the cache keyed on a
+                   dependency-aware content hash.
         """
         self.db_vendor = db_vendor or get_db_vendor()
         self._disabled_rules = disabled_rules
         self.verbose = verbose
+        self.cache = cache
+        # Memoise per-file SHA-256 so each migration file is hashed once per run
+        # even though it appears in many migrations' dependency closures.
+        self._file_hash_memo: dict[str, str] = {}
         self.rules = rules or get_all_rules(self.db_vendor)
         logger.debug(
             "Initialized analyzer: db_vendor=%s, rules=%d, disabled_rules=%s",
@@ -128,6 +137,23 @@ class MigrationAnalyzer:
             app_label = getattr(migration, "app_label", None)
         if migration_name is None:
             migration_name = getattr(migration, "name", None)
+
+        # Cache lookup: serve unchanged migrations from the cache. The content
+        # hash covers this migration's file and its transitive dependencies, so
+        # changes to ancestor migrations (which feed before-state resolution)
+        # correctly invalidate the entry.
+        cache_key: Optional[str] = None
+        content_hash: Optional[str] = None
+        if self.cache is not None and app_label and migration_name:
+            content_hash = self._migration_content_hash(
+                migration, app_label, migration_name, loader
+            )
+            if content_hash is not None:
+                cache_key = f"{app_label}:{migration_name}"
+                cached: Optional[list[Issue]] = self.cache.get(cache_key, content_hash)
+                if cached is not None:
+                    logger.debug("Cache hit for %s", cache_key)
+                    return cached
 
         operations = getattr(migration, "operations", [])
         logger.debug(
@@ -202,7 +228,80 @@ class MigrationAnalyzer:
             migration_name,
             len(issues),
         )
+
+        # Store the freshly computed result for next time.
+        if (
+            self.cache is not None
+            and cache_key is not None
+            and content_hash is not None
+        ):
+            self.cache.set(cache_key, content_hash, issues)
+
         return issues
+
+    def _migration_content_hash(
+        self,
+        migration: Migration,
+        app_label: str,
+        migration_name: str,
+        loader: Any,
+    ) -> Optional[str]:
+        """Compute a dependency-aware content hash for a migration.
+
+        The hash combines the SHA-256 of the migration's own source file with
+        those of its transitive dependencies (the graph ``forwards_plan``), so
+        a change to any ancestor — which can alter before-state resolution —
+        invalidates the entry. Returns ``None`` (uncacheable) if any file in
+        the closure cannot be located or read, or if the graph cannot resolve
+        the node (e.g. squashed/replaced migrations).
+
+        Args:
+            migration: The migration being analysed.
+            app_label: Its app label.
+            migration_name: Its migration name.
+            loader: The active ``MigrationLoader`` (provides the graph).
+
+        Returns:
+            A hex digest, or ``None`` if the migration is not safely cacheable.
+        """
+        from django_safe_migrations.cache import file_sha256
+
+        # Resolve the dependency closure to a deterministic list of file paths.
+        paths: list[str] = []
+        node = (app_label, migration_name)
+        try:
+            graph = getattr(loader, "graph", None)
+            if graph is not None and node in getattr(graph, "nodes", {}):
+                plan = graph.forwards_plan(node)
+                for dep in plan:
+                    obj = loader.disk_migrations.get(dep)
+                    if obj is None:
+                        return None
+                    dep_path = get_migration_file_path(obj)
+                    if not dep_path:
+                        return None
+                    paths.append(dep_path)
+            else:
+                # No usable graph node: fall back to the migration's own file.
+                own = get_migration_file_path(migration)
+                if not own:
+                    return None
+                paths = [own]
+        except Exception:  # noqa: BLE001 - any graph error => uncacheable
+            return None
+
+        digest = hashlib.sha256()
+        for path in paths:
+            file_hash = self._file_hash_memo.get(path)
+            if file_hash is None:
+                try:
+                    file_hash = file_sha256(path)
+                except OSError:
+                    return None
+                self._file_hash_memo[path] = file_hash
+            digest.update(file_hash.encode("ascii"))
+            digest.update(b"\0")
+        return digest.hexdigest()
 
     def _check_operation(
         self,

@@ -79,6 +79,32 @@ class Issue:
             "operation_index": self.operation_index,
         }
 
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Issue":
+        """Reconstruct an Issue from its :meth:`to_dict` representation.
+
+        Used by the analysis cache to round-trip issues to/from disk. The
+        ``severity`` value is mapped back to the :class:`Severity` enum.
+
+        Args:
+            data: A dict produced by :meth:`to_dict`.
+
+        Returns:
+            The reconstructed :class:`Issue`.
+        """
+        return cls(
+            rule_id=data["rule_id"],
+            severity=Severity(data["severity"]),
+            operation=data["operation"],
+            message=data["message"],
+            suggestion=data.get("suggestion"),
+            file_path=data.get("file_path"),
+            line_number=data.get("line_number"),
+            app_label=data.get("app_label"),
+            migration_name=data.get("migration_name"),
+            operation_index=data.get("operation_index"),
+        )
+
 
 class BaseRule(ABC):
     """Base class for all migration rules.

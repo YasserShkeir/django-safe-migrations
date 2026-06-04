@@ -11,6 +11,8 @@ import os
 import sys
 from typing import TYPE_CHECKING
 
+from django_safe_migrations.cache import DEFAULT_CACHE_FILE as _DEFAULT_CACHE_FILE
+
 if TYPE_CHECKING:
     from argparse import Namespace
 
@@ -244,6 +246,21 @@ Documentation: https://django-safe-migrations.readthedocs.io/
         metavar="SM002,SM003",
         help="Comma-separated rule IDs whose warnings should fail (exit 1)",
     )
+    parser.add_argument(
+        "--cache",
+        action="store_true",
+        help=(
+            "Cache analysis results to speed up repeat runs (default file: "
+            f"{_DEFAULT_CACHE_FILE})"
+        ),
+    )
+    parser.add_argument(
+        "--cache-file",
+        type=str,
+        default=None,
+        metavar="PATH",
+        help="Path to the cache file (implies --cache)",
+    )
 
     args: Namespace = parser.parse_args(argv)
 
@@ -300,6 +317,19 @@ Documentation: https://django-safe-migrations.readthedocs.io/
     # Create analyzer
     db_vendor_override = args.database_vendor or get_database_vendor()
     analyzer = MigrationAnalyzer(db_vendor=db_vendor_override, verbose=args.verbose)
+
+    # Optional result cache (--cache / --cache-file). Opt-in; namespaced by a
+    # fingerprint so upgrades / config changes never serve stale results.
+    cache = None
+    if args.cache or args.cache_file:
+        from django_safe_migrations.cache import AnalysisCache, compute_fingerprint
+
+        cache_path = args.cache_file or _DEFAULT_CACHE_FILE
+        fingerprint = compute_fingerprint(
+            analyzer.db_vendor, [r.rule_id for r in analyzer.rules]
+        )
+        cache = AnalysisCache(cache_path, fingerprint)
+        analyzer.cache = cache
 
     warnings_as_errors = set(get_warnings_as_errors())
     if args.warnings_as_errors:
@@ -360,6 +390,15 @@ Documentation: https://django-safe-migrations.readthedocs.io/
                 issues.extend(analyzer.analyze_app(app_label))
     else:
         issues.extend(analyzer.analyze_all(exclude_apps=exclude_apps))
+
+    # Persist the cache (best-effort) once analysis is complete.
+    if cache is not None:
+        cache.save()
+        if args.verbose:
+            print(
+                f"Cache: {cache.hits} hit(s), {cache.misses} miss(es)",
+                file=sys.stderr,
+            )
 
     # Apply baseline filtering
     if args.baseline:

@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tree), uncommitted edits are ignored — suited to incremental CI that lints
   only what was committed since the last green build. Mutually exclusive with
   `--diff`.
+- **`--cache` / `--cache-file PATH`.** Opt-in result caching that skips
+  re-analysing unchanged migrations on repeat runs. Each migration is keyed on
+  a dependency-aware content hash (its own file plus its transitive
+  dependencies), and the whole cache is namespaced by a fingerprint of the
+  package version, active rules, database vendor, Django version, `USE_TZ` and
+  resolved config — so upgrades or config changes never serve stale results.
+  Best-effort: a corrupt cache file is ignored, not fatal.
 
 ## [0.7.0] - 2026-06-04
 

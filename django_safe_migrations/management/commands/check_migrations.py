@@ -157,6 +157,18 @@ class Command(BaseCommand):
             metavar="SM002,SM003",
             help="Comma-separated rule IDs whose warnings should fail (exit 1)",
         )
+        parser.add_argument(
+            "--cache",
+            action="store_true",
+            help="Cache analysis results to speed up repeat runs",
+        )
+        parser.add_argument(
+            "--cache-file",
+            type=str,
+            default=None,
+            metavar="PATH",
+            help="Path to the cache file (implies --cache)",
+        )
 
     def list_rules(self, output_format: str) -> None:
         """List all available rules.
@@ -296,6 +308,23 @@ class Command(BaseCommand):
         # Create analyzer
         analyzer = MigrationAnalyzer(db_vendor=db_vendor_override, verbose=verbose)
 
+        # Optional result cache (--cache / --cache-file). Opt-in; namespaced by
+        # a fingerprint so upgrades / config changes never serve stale results.
+        cache = None
+        if options.get("cache") or options.get("cache_file"):
+            from django_safe_migrations.cache import (
+                DEFAULT_CACHE_FILE,
+                AnalysisCache,
+                compute_fingerprint,
+            )
+
+            cache_path = options.get("cache_file") or DEFAULT_CACHE_FILE
+            fingerprint = compute_fingerprint(
+                analyzer.db_vendor, [r.rule_id for r in analyzer.rules]
+            )
+            cache = AnalysisCache(cache_path, fingerprint)
+            analyzer.cache = cache
+
         # Collect issues
         issues: list[Issue] = []
 
@@ -373,6 +402,14 @@ class Command(BaseCommand):
                     issues.extend(analyzer.analyze_app(app_label))
         else:
             issues.extend(analyzer.analyze_all(exclude_apps=exclude_apps))
+
+        # Persist the cache (best-effort) once analysis is complete.
+        if cache is not None:
+            cache.save()
+            if verbose:
+                self.stderr.write(
+                    f"Cache: {cache.hits} hit(s), {cache.misses} miss(es)"
+                )
 
         # Apply baseline filtering
         baseline_path = options.get("baseline")

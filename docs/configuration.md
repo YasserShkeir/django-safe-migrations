@@ -465,6 +465,34 @@ python manage.py check_migrations --since-commit origin/main
 `--diff` and `--since-commit` are mutually exclusive; passing both exits with
 code 2.
 
+### `--cache` / `--cache-file`
+
+Cache analysis results so unchanged migrations are not re-analysed on the next
+run. This is useful for pre-commit hooks and CI steps that run repeatedly:
+
+```bash
+# Use the default cache file (.dsm_cache.json in the working directory)
+python manage.py check_migrations --cache
+
+# Use a custom cache location (implies --cache)
+python manage.py check_migrations --cache-file .cache/dsm.json
+```
+
+How it stays correct:
+
+- Each migration's cache entry is keyed on a content hash that combines the
+  migration's own file **and the files of its transitive dependencies**, so a
+  change to an ancestor migration (which can change before-state resolution)
+  invalidates the entry.
+- The whole cache is namespaced by a *fingerprint* of the package version, the
+  active rule IDs, the database vendor, the Django version, `USE_TZ` and the
+  resolved configuration. Any change to these discards the entire cache, so an
+  upgrade or config change never serves stale results.
+
+The cache is **opt-in** and best-effort: an unreadable or corrupt cache file is
+ignored rather than failing the run. The cache file is safe to delete at any
+time and should usually be added to `.gitignore`.
+
 ### `--baseline`
 
 Exclude issues that are present in a baseline file:
