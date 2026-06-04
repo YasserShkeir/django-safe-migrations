@@ -1,6 +1,32 @@
 # Configuration
 
-Django Safe Migrations can be configured through Django settings or command-line options.
+Django Safe Migrations can be configured through Django settings, a
+`pyproject.toml` section, or command-line options.
+
+## pyproject.toml
+
+As an alternative to the `SAFE_MIGRATIONS` Django setting, you can configure the
+linter in `pyproject.toml` — convenient for CLI / pre-commit usage. Keys are the
+lower-cased versions of the setting keys; **Django settings take precedence** over
+`pyproject.toml` when both are present. Requires Python 3.11+ (`tomllib`) or the
+`tomli` package.
+
+```toml
+[tool.django_safe_migrations]
+disabled_rules = ["SM006", "SM008"]
+disabled_categories = ["informational"]
+database_vendor = "postgresql"
+warnings_as_errors = ["SM002", "SM003"]
+```
+
+## Linting at generation time and blocking migrate
+
+- **`makemigrations` linting** — once the app is installed, `makemigrations`
+  analyses newly generated migrations and warns about safety issues. It is
+  warn-only by default; pass `--lint-strict` to fail, or `--no-lint` to skip.
+- **`migrate` blocking** — set `BLOCK_UNSAFE = True` (below) to register a Django
+  system check that prevents `migrate` from running while ERROR-level migration
+  issues exist.
 
 ## Django Settings
 
@@ -68,25 +94,25 @@ SAFE_MIGRATIONS = {
 
 Disable entire categories of rules at once. Available categories:
 
-| Category          | Description               | Rules                                                                                            |
-| ----------------- | ------------------------- | ------------------------------------------------------------------------------------------------ |
-| `postgresql`      | PostgreSQL-specific rules | SM005, SM010, SM011, SM012, SM013, SM017, SM018, SM021, SM030, SM031, SM034                      |
-| `mysql`           | MySQL-specific rules      | (none currently)                                                                                 |
-| `sqlite`          | SQLite-specific rules     | (none currently)                                                                                 |
-| `indexes`         | Index-related operations  | SM010, SM011, SM018, SM021, SM030                                                                |
-| `constraints`     | Constraint operations     | SM009, SM011, SM015, SM017, SM020, SM021                                                         |
-| `destructive`     | Destructive operations    | SM002, SM003, SM009                                                                              |
-| `relations`       | Relation operations       | SM005, SM023, SM025                                                                              |
-| `locking`         | Table-locking operations  | SM004, SM005, SM010, SM011, SM013, SM020, SM021, SM030                                           |
-| `data-loss`       | Potential data loss       | SM002, SM003, SM009, SM029                                                                       |
-| `reversibility`   | Non-reversible migrations | SM007, SM016, SM017                                                                              |
-| `data-migrations` | Data migration concerns   | SM007, SM008, SM016, SM017, SM022, SM026                                                         |
-| `security`        | Security-related rules    | SM024                                                                                            |
-| `high-risk`       | High-risk operations      | SM001, SM002, SM003, SM010, SM011, SM018, SM020, SM021, SM024, SM027, SM030                      |
-| `informational`   | Info-level warnings       | SM006, SM014, SM019, SM023, SM031, SM032, SM034, SM035, SM036                                    |
-| `naming`          | Naming convention rules   | SM019                                                                                            |
-| `schema-changes`  | Schema modification rules | SM001, SM002, SM003, SM004, SM006, SM013, SM014, SM020, SM021, SM023, SM027, SM028, SM029, SM033 |
-| `performance`     | Performance concerns      | SM022, SM025, SM026, SM028, SM033                                                                |
+| Category          | Description               | Rules                                                                                                                 |
+| ----------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `postgresql`      | PostgreSQL-specific rules | SM005, SM010, SM011, SM012, SM013, SM017, SM018, SM021, SM030, SM031, SM034, SM047, SM056                             |
+| `mysql`           | MySQL-specific rules      | (none currently)                                                                                                      |
+| `sqlite`          | SQLite-specific rules     | (none currently)                                                                                                      |
+| `indexes`         | Index-related operations  | SM010, SM011, SM018, SM021, SM030                                                                                     |
+| `constraints`     | Constraint operations     | SM009, SM011, SM015, SM017, SM020, SM021, SM040, SM047, SM056                                                         |
+| `destructive`     | Destructive operations    | SM002, SM003, SM009, SM048, SM050                                                                                     |
+| `relations`       | Relation operations       | SM005, SM023, SM025                                                                                                   |
+| `locking`         | Table-locking operations  | SM004, SM005, SM010, SM011, SM013, SM020, SM021, SM030, SM041, SM047, SM054, SM056                                    |
+| `data-loss`       | Potential data loss       | SM002, SM003, SM009, SM029, SM040, SM048, SM050                                                                       |
+| `reversibility`   | Non-reversible migrations | SM007, SM016, SM017, SM049                                                                                            |
+| `data-migrations` | Data migration concerns   | SM007, SM008, SM016, SM017, SM022, SM026, SM037, SM038                                                                |
+| `security`        | Security-related rules    | SM024                                                                                                                 |
+| `high-risk`       | High-risk operations      | SM001, SM002, SM003, SM010, SM011, SM018, SM020, SM021, SM024, SM027, SM030, SM040, SM042, SM049, SM050               |
+| `informational`   | Info-level warnings       | SM006, SM014, SM019, SM023, SM031, SM032, SM034, SM035, SM036                                                         |
+| `naming`          | Naming convention rules   | SM019                                                                                                                 |
+| `schema-changes`  | Schema modification rules | SM001, SM002, SM003, SM004, SM006, SM013, SM014, SM020, SM021, SM023, SM027, SM028, SM029, SM033, SM038, SM041, SM042 |
+| `performance`     | Performance concerns      | SM022, SM025, SM026, SM028, SM033, SM041, SM054                                                                       |
 
 ```python
 SAFE_MIGRATIONS = {
@@ -153,6 +179,41 @@ If `True`, warnings will cause a non-zero exit code (same as `--fail-on-warning`
 ```python
 SAFE_MIGRATIONS = {
     "FAIL_ON_WARNING": True,
+}
+```
+
+### `WARNINGS_AS_ERRORS`
+
+Promote specific warning-level rules to build failures (more granular than
+`FAIL_ON_WARNING`). A warning from one of these rules causes a non-zero exit:
+
+```python
+SAFE_MIGRATIONS = {
+    "WARNINGS_AS_ERRORS": ["SM002", "SM003"],
+}
+```
+
+### `DATABASE_VENDOR`
+
+Override the auto-detected database vendor used for rule analysis — useful when
+you develop on SQLite but deploy to PostgreSQL. Accepts `postgresql`, `mysql`,
+or `sqlite`:
+
+```python
+SAFE_MIGRATIONS = {
+    "DATABASE_VENDOR": "postgresql",
+}
+```
+
+### `BLOCK_UNSAFE`
+
+When `True`, an opt-in Django system check reports ERROR-level migration issues,
+so `migrate` (and other commands) refuse to run while unsafe migrations exist.
+Disabled by default:
+
+```python
+SAFE_MIGRATIONS = {
+    "BLOCK_UNSAFE": True,
 }
 ```
 
@@ -309,6 +370,24 @@ By default, only ERROR severity issues cause a non-zero exit code. Use this to a
 
 ```bash
 python manage.py check_migrations --fail-on-warning
+```
+
+### `--warnings-as-errors`
+
+Fail only on warnings from specific rules (comma-separated), instead of all
+warnings:
+
+```bash
+python manage.py check_migrations --warnings-as-errors=SM002,SM003
+```
+
+### `--database-vendor`
+
+Analyze as if running against a specific database, regardless of the configured
+one (e.g. develop on SQLite, lint for PostgreSQL):
+
+```bash
+python manage.py check_migrations --database-vendor=postgresql
 ```
 
 ### `--new-only`
