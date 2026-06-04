@@ -466,6 +466,7 @@ django_safe_migrations/
 ├── conf.py                  # Configuration handling
 ├── diff.py                  # Git-based diff mode for checking only changed migrations
 ├── interactive.py           # Interactive review mode for triaging issues
+├── reverse.py               # Reverse-migration safety checks (--check-reverse)
 ├── suppression.py           # Inline suppression
 ├── utils.py                 # Shared helpers (before-state resolution, etc.)
 ├── watch.py                 # File watcher for continuous analysis (requires watchdog)

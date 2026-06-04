@@ -60,6 +60,7 @@ class MigrationAnalyzer:
         disabled_rules: Optional[list[str]] = None,
         verbose: bool = False,
         cache: Optional[Any] = None,
+        check_reverse: bool = False,
     ):
         """Initialize the analyzer.
 
@@ -74,11 +75,14 @@ class MigrationAnalyzer:
             cache: Optional ``AnalysisCache``. When set, each migration's
                    issues are served from / stored to the cache keyed on a
                    dependency-aware content hash.
+            check_reverse: If True, also analyse each migration's rollback
+                   path for destructive operations (RV0xx issues).
         """
         self.db_vendor = db_vendor or get_db_vendor()
         self._disabled_rules = disabled_rules
         self.verbose = verbose
         self.cache = cache
+        self.check_reverse = check_reverse
         # Memoise per-file SHA-256 so each migration file is hashed once per run
         # even though it appears in many migrations' dependency closures.
         self._file_hash_memo: dict[str, str] = {}
@@ -221,6 +225,19 @@ class MigrationAnalyzer:
                 if issue.migration_name is None:
                     issue.migration_name = migration_name
                 issues.append(issue)
+
+        # Reverse-safety pass: analyse the rollback path (opt-in).
+        if self.check_reverse:
+            from django_safe_migrations.reverse import analyze_reverse_safety
+
+            issues.extend(
+                analyze_reverse_safety(
+                    migration=migration,
+                    app_label=app_label,
+                    migration_name=migration_name,
+                    file_path=file_path,
+                )
+            )
 
         logger.debug(
             "Migration %s.%s analysis complete: %d issues found",

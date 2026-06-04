@@ -261,6 +261,14 @@ Documentation: https://django-safe-migrations.readthedocs.io/
         metavar="PATH",
         help="Path to the cache file (implies --cache)",
     )
+    parser.add_argument(
+        "--check-reverse",
+        action="store_true",
+        help=(
+            "Also check each migration's rollback path for destructive "
+            "operations (RV0xx issues)"
+        ),
+    )
 
     args: Namespace = parser.parse_args(argv)
 
@@ -316,7 +324,11 @@ Documentation: https://django-safe-migrations.readthedocs.io/
 
     # Create analyzer
     db_vendor_override = args.database_vendor or get_database_vendor()
-    analyzer = MigrationAnalyzer(db_vendor=db_vendor_override, verbose=args.verbose)
+    analyzer = MigrationAnalyzer(
+        db_vendor=db_vendor_override,
+        verbose=args.verbose,
+        check_reverse=args.check_reverse,
+    )
 
     # Optional result cache (--cache / --cache-file). Opt-in; namespaced by a
     # fingerprint so upgrades / config changes never serve stale results.
@@ -326,7 +338,9 @@ Documentation: https://django-safe-migrations.readthedocs.io/
 
         cache_path = args.cache_file or _DEFAULT_CACHE_FILE
         fingerprint = compute_fingerprint(
-            analyzer.db_vendor, [r.rule_id for r in analyzer.rules]
+            analyzer.db_vendor,
+            [r.rule_id for r in analyzer.rules],
+            check_reverse=analyzer.check_reverse,
         )
         cache = AnalysisCache(cache_path, fingerprint)
         analyzer.cache = cache

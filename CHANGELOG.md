@@ -21,6 +21,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   package version, active rules, database vendor, Django version, `USE_TZ` and
   resolved config — so upgrades or config changes never serve stale results.
   Best-effort: a corrupt cache file is ignored, not fatal.
+- **`--check-reverse`.** Also analyse each migration's rollback path and report
+  destructive reverse operations under a new `RV0xx` family: `RV001`
+  (`AddField` → `DROP COLUMN`), `RV002` (`CreateModel` → `DROP TABLE`), `RV003`
+  (`AddIndex` → `DROP INDEX`), `RV004` (`AddConstraint` → `DROP CONSTRAINT`).
+  Distinct from `SM007`/`SM016` (which flag operations that cannot be reversed
+  at all); fires only when the flag is given.
 
 ## [0.7.0] - 2026-06-04
 
