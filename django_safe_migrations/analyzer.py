@@ -16,6 +16,7 @@ from django_safe_migrations.rules import get_all_rules
 from django_safe_migrations.rules.base import BaseRule, Issue
 from django_safe_migrations.suppression import (
     get_suppressions_for_migration,
+    is_migration_suppressed,
     is_operation_suppressed,
 )
 from django_safe_migrations.utils import (
@@ -214,6 +215,8 @@ class MigrationAnalyzer:
                 continue
             if not rule.applies_to_django():
                 continue
+            if is_migration_suppressed(rule.rule_id, suppressions):
+                continue
             for issue in rule.check_migration(migration):
                 issue.severity = get_rule_severity_for_app(
                     issue.rule_id, issue.severity, app_label
@@ -370,6 +373,10 @@ class MigrationAnalyzer:
 
             # Skip rules that require a newer Django than is installed
             if not rule.applies_to_django():
+                continue
+
+            # Skip rules suppressed for the whole migration
+            if is_migration_suppressed(rule.rule_id, suppressions):
                 continue
 
             # Check for inline suppression comments

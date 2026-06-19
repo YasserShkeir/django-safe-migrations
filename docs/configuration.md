@@ -317,6 +317,27 @@ migrations.RunSQL(
 )
 ```
 
+### Migration-Level Suppression
+
+Use `ignore-migration` when a rule should be suppressed for the whole migration:
+
+```python
+# safe-migrations: ignore-migration SM038 -- schema and data are intentionally coupled
+
+operations = [
+    # safe-migrations: ignore SM001 -- safe because table is empty
+    migrations.AddField(
+        model_name='user',
+        name='email',
+        field=models.CharField(max_length=255),
+    ),
+]
+```
+
+This is useful for migration-level rules such as `SM038`, while keeping other
+rules suppressible per operation. Prefer specific rule IDs over
+`ignore-migration all`.
+
 ### Best Practices
 
 1. **Always include a reason** — Future developers (including yourself) will want to know why:

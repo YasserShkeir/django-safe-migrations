@@ -2,13 +2,14 @@
 
 This module provides functionality to parse inline suppression comments
 in migration files, allowing developers to suppress specific warnings
-on a per-operation basis.
+on a per-operation or whole-migration basis.
 
 Supported formats:
     # safe-migrations: ignore SM001
     # safe-migrations: ignore SM001, SM002
     # safe-migrations: ignore SM001 -- intentional cleanup
     # safe-migrations: ignore all
+    # safe-migrations: ignore-migration SM038 -- schema/data mix reviewed
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
+from enum import Enum, unique
 from typing import TYPE_CHECKING, Optional
 
 logger = logging.getLogger("django_safe_migrations")
@@ -27,11 +29,20 @@ if TYPE_CHECKING:
 # Pattern to match suppression comments
 # Matches: # safe-migrations: ignore SM001, SM002 -- optional reason
 SUPPRESSION_PATTERN = re.compile(
-    r"#\s*safe-migrations:\s*ignore\s+"
+    r"#\s*safe-migrations:\s*"
+    r"(?P<action>ignore-migration|ignore)\s+"
     r"(?P<rules>all|SM\d{3}(?:\s*,\s*SM\d{3})*)"
     r"(?:\s*--\s*(?P<reason>.*))?",
     re.IGNORECASE,
 )
+
+
+@unique
+class SuppressionScope(Enum):
+    """Scope where a suppression applies."""
+
+    OPERATION = "operation"
+    MIGRATION = "migration"
 
 
 @dataclass
@@ -42,11 +53,13 @@ class Suppression:
         rules: Set of rule IDs to suppress, or {"all"} for all rules.
         reason: Optional reason for the suppression.
         line_number: Line number where the suppression was found.
+        scope: Suppression scope.
     """
 
     rules: set[str]
     reason: Optional[str]
     line_number: int
+    scope: SuppressionScope = SuppressionScope.OPERATION
 
     def suppresses(self, rule_id: str) -> bool:
         """Check if this suppression applies to a rule.
@@ -76,6 +89,12 @@ def parse_suppression_comment(line: str, line_number: int) -> Optional[Suppressi
 
     rules_str = match.group("rules")
     reason = match.group("reason")
+    action = match.group("action").lower()
+    scope = (
+        SuppressionScope.MIGRATION
+        if action == "ignore-migration"
+        else SuppressionScope.OPERATION
+    )
 
     if rules_str.lower() == "all":
         rules = {"all"}
@@ -99,6 +118,7 @@ def parse_suppression_comment(line: str, line_number: int) -> Optional[Suppressi
         rules=rules,
         reason=reason.strip() if reason else None,
         line_number=line_number,
+        scope=scope,
     )
 
 
@@ -169,22 +189,56 @@ def is_operation_suppressed(
 
     # Check for suppression on the same line
     if operation_line in suppressions:
-        if suppressions[operation_line].suppresses(rule_id):
+        if suppressions[
+            operation_line
+        ].scope is SuppressionScope.OPERATION and suppressions[
+            operation_line
+        ].suppresses(
+            rule_id
+        ):
             return True
 
     # Check for suppression on the line immediately before
     prev_line = operation_line - 1
     if prev_line in suppressions:
-        if suppressions[prev_line].suppresses(rule_id):
+        if suppressions[prev_line].scope is SuppressionScope.OPERATION and suppressions[
+            prev_line
+        ].suppresses(rule_id):
             return True
 
     # Check for suppression two lines before (common pattern with blank line)
     prev_prev_line = operation_line - 2
     if prev_prev_line in suppressions:
-        if suppressions[prev_prev_line].suppresses(rule_id):
+        if suppressions[
+            prev_prev_line
+        ].scope is SuppressionScope.OPERATION and suppressions[
+            prev_prev_line
+        ].suppresses(
+            rule_id
+        ):
             return True
 
     return False
+
+
+def is_migration_suppressed(
+    rule_id: str,
+    suppressions: dict[int, Suppression],
+) -> bool:
+    """Check if a migration is suppressed for a specific rule.
+
+    Args:
+        rule_id: The rule ID to check.
+        suppressions: Pre-parsed suppressions for the migration file.
+
+    Returns:
+        True if any migration-level suppression covers the rule.
+    """
+    return any(
+        suppression.scope is SuppressionScope.MIGRATION
+        and suppression.suppresses(rule_id)
+        for suppression in suppressions.values()
+    )
 
 
 def get_suppression_reason(
@@ -211,7 +265,7 @@ def get_suppression_reason(
         check_line = operation_line + offset
         if check_line in suppressions:
             sup = suppressions[check_line]
-            if sup.suppresses(rule_id):
+            if sup.scope is SuppressionScope.OPERATION and sup.suppresses(rule_id):
                 return sup.reason
 
     return None
