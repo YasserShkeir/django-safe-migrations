@@ -7,7 +7,9 @@ import tempfile
 
 from django_safe_migrations.suppression import (
     Suppression,
+    SuppressionScope,
     get_suppressions_from_file,
+    is_migration_suppressed,
     is_operation_suppressed,
     parse_suppression_comment,
 )
@@ -96,6 +98,45 @@ class TestParseSuppressionComment:
 
         assert result is not None
         assert result.rules == {"SM001", "SM002"}
+
+    def test_migration_scope_single_rule(self) -> None:
+        """Test parsing a migration-level suppression."""
+        result = parse_suppression_comment(
+            "# safe-migrations: ignore-migration SM038 -- intentional mix",
+            3,
+        )
+
+        assert result is not None
+        assert result.scope is SuppressionScope.MIGRATION
+        assert result.rules == {"SM038"}
+        assert result.reason == "intentional mix"
+        assert result.line_number == 3
+
+    def test_operation_scope_remains_default(self) -> None:
+        """Test existing ignore syntax remains operation-scoped."""
+        result = parse_suppression_comment("# safe-migrations: ignore SM001", 4)
+
+        assert result is not None
+        assert result.scope is SuppressionScope.OPERATION
+        assert result.rules == {"SM001"}
+
+    def test_migration_scope_multiple_rules_and_all(self) -> None:
+        """Test migration scope supports multiple rules and all."""
+        multiple = parse_suppression_comment(
+            "# safe-migrations: ignore-migration SM038, SM054",
+            1,
+        )
+        all_rules = parse_suppression_comment(
+            "# safe-migrations: ignore-migration all",
+            2,
+        )
+
+        assert multiple is not None
+        assert multiple.scope is SuppressionScope.MIGRATION
+        assert multiple.rules == {"SM038", "SM054"}
+        assert all_rules is not None
+        assert all_rules.scope is SuppressionScope.MIGRATION
+        assert all_rules.rules == {"all"}
 
 
 class TestSuppression:
@@ -261,6 +302,71 @@ migrations.AddField(
             suppressions=suppressions,
         )
         assert result is True
+
+    def test_ignores_migration_scope(self) -> None:
+        """Test operation suppression ignores migration-level suppressions."""
+        suppressions = {
+            5: Suppression(
+                rules={"SM001"},
+                reason=None,
+                line_number=5,
+                scope=SuppressionScope.MIGRATION,
+            ),
+        }
+
+        result = is_operation_suppressed(
+            "/fake/path.py",
+            6,  # Line after suppression
+            "SM001",
+            suppressions=suppressions,
+        )
+
+        assert result is False
+
+
+class TestIsMigrationSuppressed:
+    """Tests for is_migration_suppressed function."""
+
+    def test_matches_migration_scope(self) -> None:
+        """Test migration suppression matches regardless of line number."""
+        suppressions = {
+            2: Suppression(
+                rules={"SM038"},
+                reason="intentional",
+                line_number=2,
+                scope=SuppressionScope.MIGRATION,
+            ),
+        }
+
+        assert is_migration_suppressed("SM038", suppressions) is True
+        assert is_migration_suppressed("SM001", suppressions) is False
+
+    def test_ignore_all_matches_any_rule(self) -> None:
+        """Test migration-level ignore all suppresses any rule."""
+        suppressions = {
+            2: Suppression(
+                rules={"all"},
+                reason=None,
+                line_number=2,
+                scope=SuppressionScope.MIGRATION,
+            ),
+        }
+
+        assert is_migration_suppressed("SM038", suppressions) is True
+        assert is_migration_suppressed("SM001", suppressions) is True
+
+    def test_ignores_operation_scope(self) -> None:
+        """Test migration suppression ignores operation-level suppressions."""
+        suppressions = {
+            2: Suppression(
+                rules={"SM038"},
+                reason=None,
+                line_number=2,
+                scope=SuppressionScope.OPERATION,
+            ),
+        }
+
+        assert is_migration_suppressed("SM038", suppressions) is False
 
 
 class TestSuppressionValidation:
