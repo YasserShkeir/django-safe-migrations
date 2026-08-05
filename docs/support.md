@@ -6,9 +6,22 @@ Django Safe Migrations is free, open-source software maintained by [Yasser Shkei
 
 ### Financial Support
 
-If django-safe-migrations has helped you ship safer migrations, consider supporting its development:
+If django-safe-migrations has caught a migration that would have locked a table in production — or saved you an incident at 2am — consider supporting its development.
 
-[![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-red.svg?style=for-the-badge)](https://www.yasser-shkeir.com/donate)
+[![Sponsor on GitHub](https://img.shields.io/badge/Sponsor-GitHub%20Sponsors-ea4aaa.svg?style=for-the-badge)](https://github.com/sponsors/YasserShkeir)
+
+**[GitHub Sponsors](https://github.com/sponsors/YasserShkeir)** is the most direct route. It charges a 0% platform fee, so the full amount reaches development, and it supports both one-time and recurring sponsorship.
+
+Prefer a card checkout? Fixed Stripe tiers are available:
+
+| One-time                                              | Monthly                                                  |
+| ----------------------------------------------------- | -------------------------------------------------------- |
+| [$5](https://buy.stripe.com/6oUfZbgh17Km5xQ2HzcMM00)  | [$5/mo](https://buy.stripe.com/8x2eV76Gr9Su1hAci9cMM04)  |
+| [$10](https://buy.stripe.com/bJe00d8Oz4ya8K21DvcMM01) | [$15/mo](https://buy.stripe.com/28EeV7e8TaWy2lE5TLcMM05) |
+| [$25](https://buy.stripe.com/00wfZb5Cn7Km8K21DvcMM02) | [$50/mo](https://buy.stripe.com/bJe8wJ7Kvc0C7FY2HzcMM06) |
+| [$50](https://buy.stripe.com/aFa14h7Kv0hU1hAfulcMM03) |                                                          |
+
+Every option is also collected on the [donate page](https://www.yasser-shkeir.com/donate).
 
 Your support helps cover:
 
@@ -26,12 +39,6 @@ You can also support the project by:
 - **Contribute code** - Submit pull requests for features or fixes
 - **Write documentation** - Improve guides, examples, or translations
 - **Spread the word** - Share with your team, blog about it, or present at meetups
-
-## GitHub Sponsors
-
-You can also sponsor via GitHub:
-
-[Sponsor on GitHub](https://github.com/sponsors/YasserShkeir)
 
 ## Corporate Sponsorship
 
