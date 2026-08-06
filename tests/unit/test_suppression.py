@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import importlib
 import logging
+import sys
 import tempfile
+import uuid
 
+import pytest
+
+from django_safe_migrations.analyzer import MigrationAnalyzer
 from django_safe_migrations.suppression import (
     Suppression,
     SuppressionScope,
+    format_suppression_report,
     get_suppressions_from_file,
     is_migration_suppressed,
     is_operation_suppressed,
@@ -410,3 +417,298 @@ class TestSuppressionValidation:
         assert "SM999" in caplog.text
         # SM001 should not be in the warning
         assert "SM001" not in caplog.text.split("unknown")[1]
+
+
+# ---------------------------------------------------------------------------
+# Blast-radius regression tests.
+#
+# ``ignore-migration`` silences a rule for an entire file, so a directive that
+# fires from the wrong place turns the whole migration into a blind spot.
+# These tests pin down that a directive counts only when it is a real comment
+# whose text *starts* with the directive.
+# ---------------------------------------------------------------------------
+
+MIGRATION_TEMPLATE = '''{header}
+
+from django.db import migrations, models
+
+{extra}
+
+
+class Migration(migrations.Migration):
+    """A migration with several genuinely unsafe operations."""
+
+    dependencies = []
+
+    operations = [
+        migrations.AddField(
+            model_name="user",
+            name="email",
+            field=models.CharField(max_length=255, null=False, default="x"),
+        ),
+        migrations.RunSQL(sql="UPDATE app_user SET email = 'a@b.c' {sql_extra}"),
+        migrations.RemoveField(model_name="user", name="legacy"),
+        migrations.RunPython(code=lambda apps, schema_editor: None),
+        migrations.AddIndex(
+            model_name="user",
+            index=models.Index(fields=["email"], name="user_email_idx"),
+        ),
+    ]
+'''
+
+PLAIN_HEADER = '"""A migration."""'
+
+REFUSAL_DOCSTRING = '''"""Reviewer notes for this migration.
+
+The team discussed blanket suppression and decided NOT to use
+# safe-migrations: ignore-migration all
+because it would hide every check in this file.
+"""'''
+
+
+@pytest.fixture
+def analyze_migration_source(tmp_path, monkeypatch):
+    """Write a migration module to disk, import it and analyse it.
+
+    Returns a callable taking the module source and giving back the
+    ``(sorted rule IDs found, analyzer)`` pair. The analyzer is returned so
+    tests can inspect ``suppression_records``.
+    """
+    monkeypatch.syspath_prepend(str(tmp_path))
+
+    def _analyze(source: str, check_reverse: bool = False):
+        module_name = f"dsm_suppression_fixture_{uuid.uuid4().hex}"
+        (tmp_path / f"{module_name}.py").write_text(source, encoding="utf-8")
+        module = importlib.import_module(module_name)
+        try:
+            migration = module.Migration("0001_test", "testapp")
+            analyzer = MigrationAnalyzer(
+                db_vendor="postgresql", check_reverse=check_reverse
+            )
+            issues = analyzer.analyze_migration(
+                migration, app_label="testapp", migration_name="0001_test"
+            )
+            return sorted({issue.rule_id for issue in issues}), analyzer
+        finally:
+            sys.modules.pop(module_name, None)
+
+    return _analyze
+
+
+def build_migration(header: str = PLAIN_HEADER, extra: str = "", sql_extra: str = ""):
+    """Render a migration module with an optional poisoned fragment."""
+    return MIGRATION_TEMPLATE.format(header=header, extra=extra, sql_extra=sql_extra)
+
+
+class TestSuppressionBlastRadius:
+    """A stray occurrence of the phrase must not silence a migration."""
+
+    def test_baseline_migration_reports_issues(self, analyze_migration_source) -> None:
+        """The unpoisoned fixture reports several rules (guards the others)."""
+        found, _ = analyze_migration_source(build_migration())
+
+        assert len(found) >= 5
+        assert {"SM007", "SM016", "SM038"} <= set(found)
+
+    def test_phrase_in_module_docstring_is_ignored(
+        self, analyze_migration_source
+    ) -> None:
+        """A docstring mentioning the directive must not suppress anything.
+
+        Case (a): here the docstring explicitly refuses the directive, so
+        honouring it would invert the author's stated intent.
+        """
+        baseline, _ = analyze_migration_source(build_migration())
+        found, analyzer = analyze_migration_source(
+            build_migration(header=REFUSAL_DOCSTRING)
+        )
+
+        assert found == baseline
+        assert analyzer.suppression_records == []
+
+    def test_commented_out_directive_is_ignored(self, analyze_migration_source) -> None:
+        """Case (b): a directive commented out with a second '#' must not fire."""
+        baseline, _ = analyze_migration_source(build_migration())
+        found, analyzer = analyze_migration_source(
+            build_migration(extra="# # safe-migrations: ignore-migration all")
+        )
+
+        assert found == baseline
+        assert analyzer.suppression_records == []
+
+    def test_phrase_inside_string_literal_is_ignored(
+        self, analyze_migration_source
+    ) -> None:
+        """Case (c): the phrase inside a RunSQL string is data, not a directive."""
+        baseline, _ = analyze_migration_source(build_migration())
+        found, analyzer = analyze_migration_source(
+            build_migration(sql_extra="-- # safe-migrations: ignore-migration all")
+        )
+
+        assert found == baseline
+        assert analyzer.suppression_records == []
+
+    def test_phrase_quoted_in_prose_is_ignored(self, analyze_migration_source) -> None:
+        """Case (d): the directive quoted in backticks inside a comment."""
+        baseline, _ = analyze_migration_source(build_migration())
+        found, analyzer = analyze_migration_source(
+            build_migration(
+                extra="# never write `# safe-migrations: ignore-migration all` here"
+            )
+        )
+
+        assert found == baseline
+        assert analyzer.suppression_records == []
+
+    def test_real_directive_still_suppresses(self, analyze_migration_source) -> None:
+        """A genuine migration-level directive still silences the whole file."""
+        baseline, _ = analyze_migration_source(build_migration())
+        found, analyzer = analyze_migration_source(
+            build_migration(
+                extra="# safe-migrations: ignore-migration all -- reviewed by DBA"
+            )
+        )
+
+        assert found == []
+        assert baseline  # the fixture really did have something to suppress
+        assert {r.rule_id for r in analyzer.suppression_records} == set(baseline)
+
+    def test_real_scoped_directive_suppresses_only_named_rule(
+        self, analyze_migration_source
+    ) -> None:
+        """``ignore-migration SM038`` drops SM038 and leaves the rest alone."""
+        baseline, _ = analyze_migration_source(build_migration())
+        found, analyzer = analyze_migration_source(
+            build_migration(extra="# safe-migrations: ignore-migration SM038")
+        )
+
+        assert "SM038" in baseline
+        assert found == [rule_id for rule_id in baseline if rule_id != "SM038"]
+        assert [r.rule_id for r in analyzer.suppression_records] == ["SM038"]
+
+    def test_unknown_rule_id_fails_safe(self, analyze_migration_source) -> None:
+        """An unknown rule ID suppresses nothing rather than everything."""
+        baseline, _ = analyze_migration_source(build_migration())
+        found, analyzer = analyze_migration_source(
+            build_migration(extra="# safe-migrations: ignore-migration SM999")
+        )
+
+        assert found == baseline
+        assert analyzer.suppression_records == []
+
+    def test_suppression_report_names_what_was_suppressed(
+        self, analyze_migration_source
+    ) -> None:
+        """The report names each silenced rule and the directive's line."""
+        _, analyzer = analyze_migration_source(
+            build_migration(
+                extra="# safe-migrations: ignore-migration SM038 -- reviewed by DBA"
+            )
+        )
+
+        report = format_suppression_report(analyzer.suppression_records)
+
+        assert "Suppressed 1 finding(s)" in report
+        assert "SM038" in report
+        assert "[migration]" in report
+        assert "reviewed by DBA" in report
+        record = analyzer.suppression_records[0]
+        assert f":{record.line_number}" in report
+        assert record.file_path is not None
+        assert record.app_label == "testapp"
+
+    def test_empty_report_when_nothing_suppressed(
+        self, analyze_migration_source
+    ) -> None:
+        """No suppressions means no report noise."""
+        _, analyzer = analyze_migration_source(build_migration())
+
+        assert format_suppression_report(analyzer.suppression_records) == ""
+
+    def test_operation_directive_still_works(self, analyze_migration_source) -> None:
+        """Operation-scoped suppression is unaffected by the anchoring fix."""
+        source = build_migration().replace(
+            '        migrations.RunSQL(sql="UPDATE',
+            "        # safe-migrations: ignore SM007 -- reviewed\n"
+            '        migrations.RunSQL(sql="UPDATE',
+        )
+        baseline, _ = analyze_migration_source(build_migration())
+        found, analyzer = analyze_migration_source(source)
+
+        assert "SM007" in baseline
+        assert "SM007" not in found
+        records = [r for r in analyzer.suppression_records if r.rule_id == "SM007"]
+        assert records and records[0].scope is SuppressionScope.OPERATION
+        assert records[0].reason == "reviewed"
+
+    def test_ignore_migration_all_covers_reverse_rules(
+        self, analyze_migration_source
+    ) -> None:
+        """``all`` also silences RV0xx, matching the documented contract."""
+        baseline, _ = analyze_migration_source(build_migration(), check_reverse=True)
+        found, analyzer = analyze_migration_source(
+            build_migration(extra="# safe-migrations: ignore-migration all"),
+            check_reverse=True,
+        )
+
+        assert any(rule_id.startswith("RV") for rule_id in baseline)
+        assert found == []
+        assert any(r.rule_id.startswith("RV") for r in analyzer.suppression_records)
+
+
+class TestSuppressionAnchoring:
+    """Unit-level checks on where a directive is allowed to start."""
+
+    def test_directive_must_start_the_comment(self) -> None:
+        """A directive preceded by anything inside the comment is inert."""
+        assert parse_suppression_comment("# # safe-migrations: ignore all", 1) is None
+        assert (
+            parse_suppression_comment("# see `# safe-migrations: ignore all`", 1)
+            is None
+        )
+        assert (
+            parse_suppression_comment("# TODO: safe-migrations: ignore all", 1) is None
+        )
+
+    def test_trailing_comment_still_parses(self) -> None:
+        """A directive after code on the same line remains valid."""
+        result = parse_suppression_comment("    ),  # safe-migrations: ignore SM002", 3)
+
+        assert result is not None
+        assert result.rules == {"SM002"}
+
+    def test_string_literals_are_skipped(self) -> None:
+        """Directives inside strings are not parsed out of a real file."""
+        content = (
+            '"""Do not use\n'
+            "# safe-migrations: ignore-migration all\n"
+            'in this project."""\n'
+            'SQL = "-- # safe-migrations: ignore-migration all"\n'
+        )
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(content)
+            f.flush()
+
+            assert get_suppressions_from_file(f.name) == {}
+
+    def test_untokenizable_file_falls_back_without_crashing(self) -> None:
+        """A syntax error degrades to the anchored line scan, not an exception."""
+        content = (
+            "def broken(:\n"
+            "# safe-migrations: ignore SM001\n"
+            "# # safe-migrations: ignore SM002\n"
+        )
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", delete=False, encoding="utf-8"
+        ) as f:
+            f.write(content)
+            f.flush()
+
+            result = get_suppressions_from_file(f.name)
+
+        assert 2 in result
+        assert result[2].rules == {"SM001"}
+        # The commented-out directive stays inert in the fallback path too.
+        assert 3 not in result

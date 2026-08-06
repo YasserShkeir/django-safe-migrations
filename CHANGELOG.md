@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Migration-level suppression (`safe-migrations: ignore-migration ...`).**
+  Suppresses a rule for a whole migration file, complementing the existing
+  per-operation `ignore` directive. Opt-in and default-off; unknown rule IDs
+  are warned about and suppress nothing.
+- **Suppression reporting.** Every finding an inline directive silences is
+  now listed on stderr — one line per suppressed rule with the directive's
+  file, line, scope and reason — so a clean run cannot be confused with a
+  silently skipped one. stderr keeps machine-readable stdout intact.
+
+### Changed
+
+- **Inline directives are now anchored to real comments.** Directives are
+  located with `tokenize` and matched from the start of the comment token, so
+  the phrase no longer fires from inside docstrings or string literals, from a
+  commented-out directive (`# # safe-migrations: ...`), or from a quoted
+  mention in prose. Previously any occurrence anywhere in the file could
+  silence an entire migration. A file that cannot be tokenised degrades to an
+  anchored line scan instead of raising.
+- **`ignore all` / `ignore-migration all` now also cover the `RV0xx`
+  reverse-safety family**, matching the documented meaning of `all`.
+  Previously `--check-reverse` findings were reported regardless.
+- Migrations containing suppression comments are no longer served from (or
+  written to) `--cache`, so the suppression report is complete on every run.
+
 ## [0.7.1] - 2026-06-05
 
 ### Added
