@@ -673,6 +673,28 @@ class TestSuppressionComments:
         rule_ids = {i.get("rule_id") for i in data["issues"]}
         assert "SM002" in rule_ids or "SM007" in rule_ids
 
+    def test_suppression_is_reported_on_stderr(self):
+        """Test that a suppressed finding is named in the run's output.
+
+        A safety tool must not let "checked" and "silently skipped" look the
+        same, so the rule and the directive's line number are reported.
+        """
+        out = StringIO()
+        err = StringIO()
+        with pytest.raises(SystemExit):
+            call_command(
+                "check_migrations", "testapp", format="json", stdout=out, stderr=err
+            )
+
+        report = err.getvalue()
+        assert "Suppressed" in report
+        assert "SM001" in report
+        assert "0011_suppressed_not_null" in report
+        assert "[operation]" in report
+
+        # stdout must stay valid JSON: the report never goes there.
+        json.loads(out.getvalue())
+
 
 class TestCLIEntryPoint:
     """Tests for CLI entry point used by pre-commit (v0.2.0 feature)."""

@@ -19,6 +19,7 @@ from django_safe_migrations.conf import (
 from django_safe_migrations.reporters import get_reporter
 from django_safe_migrations.rules import ALL_RULES, _load_extra_rules
 from django_safe_migrations.rules.base import Issue, Severity
+from django_safe_migrations.suppression import format_suppression_report
 
 
 class Command(BaseCommand):
@@ -442,6 +443,14 @@ class Command(BaseCommand):
                 self.stderr.write(
                     f"Cache: {cache.hits} hit(s), {cache.misses} miss(es)"
                 )
+
+        # Report every finding an inline suppression comment silenced. A
+        # safety tool must never let "checked" and "silently skipped" look
+        # the same, so this is emitted on stderr regardless of --format (it
+        # would otherwise corrupt machine-readable stdout).
+        suppression_report = format_suppression_report(analyzer.suppression_records)
+        if suppression_report:
+            self.stderr.write(self.style.WARNING(suppression_report))
 
         # Apply baseline filtering
         baseline_path = options.get("baseline")

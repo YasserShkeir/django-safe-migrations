@@ -18,6 +18,11 @@ Scope: only operations whose reverse is unambiguous **without reconstructing
 lost state** are reported. Reverses that need historical state (``RemoveField``
 re-adding a column, ``DeleteModel`` recreating a table, ``AlterField``
 restoring the old field) are intentionally out of scope to avoid guessing.
+
+Inline suppression applies here too: ``safe-migrations: ignore all`` /
+``ignore-migration all`` covers the ``RV0xx`` family, matching the documented
+contract that ``all`` means *all rules*. Suppressing an individual reverse rule
+by ID is not supported -- the directive grammar only accepts ``SM`` IDs.
 """
 
 from __future__ import annotations
@@ -26,6 +31,11 @@ import logging
 from typing import TYPE_CHECKING, Optional
 
 from django_safe_migrations.rules.base import Issue, Severity
+from django_safe_migrations.suppression import (
+    Suppression,
+    SuppressionRecord,
+    find_suppression,
+)
 
 if TYPE_CHECKING:
     from django.db.migrations import Migration
@@ -134,6 +144,8 @@ def analyze_reverse_safety(
     app_label: Optional[str] = None,
     migration_name: Optional[str] = None,
     file_path: Optional[str] = None,
+    suppressions: Optional[dict[int, Suppression]] = None,
+    suppression_records: Optional[list[SuppressionRecord]] = None,
 ) -> list[Issue]:
     """Analyse a migration's **rollback** path for dangerous operations.
 
@@ -142,17 +154,57 @@ def analyze_reverse_safety(
         app_label: The app label (for issue enrichment).
         migration_name: The migration name (for issue enrichment).
         file_path: The migration file path (for issue enrichment).
+        suppressions: Pre-parsed inline suppressions for the migration file.
+            ``ignore all`` / ``ignore-migration all`` drops the matching
+            ``RV0xx`` issues, as documented.
+        suppression_records: Optional list that each silenced finding is
+            appended to, so the run can report what it skipped.
 
     Returns:
         A list of ``RV0xx`` issues describing rollback dangers.
     """
     issues: list[Issue] = []
     operations = getattr(migration, "operations", [])
+    suppressions = suppressions or {}
 
     for idx, operation in enumerate(operations):
         issue = _check_operation_reverse(operation)
         if issue is None:
             continue
+
+        if suppressions:
+            # Only resolve line numbers when there is something to match.
+            from django_safe_migrations.utils import get_operation_line_number
+
+            suppression = find_suppression(
+                issue.rule_id,
+                suppressions,
+                file_path=file_path,
+                operation_line=get_operation_line_number(migration, idx),
+            )
+            if suppression is not None:
+                logger.debug(
+                    "Suppressed %s in %s.%s via %s directive on line %d",
+                    issue.rule_id,
+                    app_label,
+                    migration_name,
+                    suppression.scope.value,
+                    suppression.line_number,
+                )
+                if suppression_records is not None:
+                    suppression_records.append(
+                        SuppressionRecord(
+                            rule_id=issue.rule_id,
+                            scope=suppression.scope,
+                            line_number=suppression.line_number,
+                            reason=suppression.reason,
+                            file_path=file_path,
+                            app_label=app_label,
+                            migration_name=migration_name,
+                        )
+                    )
+                continue
+
         issue.app_label = app_label
         issue.migration_name = migration_name
         issue.file_path = file_path
