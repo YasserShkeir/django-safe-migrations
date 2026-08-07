@@ -28,7 +28,9 @@ an accidental match anywhere would turn the entire migration into a blind
 spot. When a file cannot be tokenised (syntax error), parsing degrades to an
 anchored raw-line scan of the untokenisable tail rather than crashing.
 
-Every suppression that actually silences a finding is recorded as a
+A rule covered by a directive is **skipped, not run-and-filtered**: whatever
+the rule would have done (including raising) must not affect a migration the
+author already silenced. Each skipped check is recorded as a
 :class:`SuppressionRecord` by the analyzer and reported, so a clean run never
 hides a skipped check.
 """
@@ -63,6 +65,12 @@ SUPPRESSION_PATTERN = re.compile(
     r"(?:\s*--\s*(?P<reason>.*))?",
     re.IGNORECASE,
 )
+
+# Cheap pre-filter for :func:`_parse_source`. Every directive SUPPRESSION_PATTERN
+# can match contains this literal, so a file without it cannot hold one and does
+# not need tokenising -- which is the expensive part of parsing, and is otherwise
+# paid for every migration file on every run.
+DIRECTIVE_HINT = re.compile(r"safe-migrations:", re.IGNORECASE)
 
 
 @unique
@@ -100,17 +108,33 @@ class Suppression:
         """
         return "all" in self.rules or rule_id.upper() in self.rules
 
+    def report_rule_id(self, rule_id: str) -> str:
+        """Return the label to report for a check this directive silenced.
+
+        A blanket ``all`` directive covers every rule in the suite. Since a
+        suppressed rule is never run, reporting it per rule would emit one
+        line for each rule in the suite; ``all`` says the same thing once.
+
+        Args:
+            rule_id: The rule that was not run.
+
+        Returns:
+            ``"all"`` for a blanket directive, else ``rule_id``.
+        """
+        return "all" if "all" in self.rules else rule_id
+
 
 @dataclass
 class SuppressionRecord:
-    """One finding that a suppression comment silenced.
+    """One check that a suppression comment silenced.
 
-    Recorded only when a rule actually produced an issue that was then
-    dropped, so the report names real skipped checks rather than every
-    rule a broad directive theoretically covers.
+    A suppressed rule is skipped, not run-and-filtered, so this names the
+    check that did not run rather than a confirmed finding. A blanket
+    directive is recorded once as ``all`` (see
+    :meth:`Suppression.report_rule_id`) instead of once per rule.
 
     Attributes:
-        rule_id: The rule whose finding was suppressed.
+        rule_id: The rule that was not run, or ``"all"``.
         scope: Whether the directive was operation- or migration-scoped.
         line_number: Line of the suppression comment itself.
         reason: The ``--`` reason from the comment, if any.
@@ -174,7 +198,7 @@ def format_suppression_report(records: Iterable[SuppressionRecord]) -> str:
         return ""
 
     ordered = [unique_records[key] for key in sorted(unique_records)]
-    lines = [f"Suppressed {len(ordered)} finding(s) via inline comments:"]
+    lines = [f"Suppressed {len(ordered)} check(s) via inline comments:"]
     lines.extend(f"  {record.format()}" for record in ordered)
     return "\n".join(lines)
 
@@ -289,6 +313,12 @@ def _parse_source(source: str) -> dict[int, Suppression]:
     Returns:
         A dictionary mapping line numbers to Suppression objects.
     """
+    # Skip the tokenizer entirely when the file cannot contain a directive.
+    # Purely a shortcut: the literal is a necessary part of every match, so
+    # this can only skip files that would have yielded nothing.
+    if not DIRECTIVE_HINT.search(source):
+        return {}
+
     suppressions: dict[int, Suppression] = {}
 
     comments, tokenized_through = _tokenize_comments(source)

@@ -11,6 +11,7 @@ import uuid
 import pytest
 
 from django_safe_migrations.analyzer import MigrationAnalyzer
+from django_safe_migrations.rules.base import BaseRule, Severity
 from django_safe_migrations.suppression import (
     Suppression,
     SuppressionScope,
@@ -472,18 +473,19 @@ def analyze_migration_source(tmp_path, monkeypatch):
 
     Returns a callable taking the module source and giving back the
     ``(sorted rule IDs found, analyzer)`` pair. The analyzer is returned so
-    tests can inspect ``suppression_records``.
+    tests can inspect ``suppression_records``. Pass ``rules`` to analyse with
+    a custom rule set instead of the built-in suite.
     """
     monkeypatch.syspath_prepend(str(tmp_path))
 
-    def _analyze(source: str, check_reverse: bool = False):
+    def _analyze(source: str, check_reverse: bool = False, rules=None):
         module_name = f"dsm_suppression_fixture_{uuid.uuid4().hex}"
         (tmp_path / f"{module_name}.py").write_text(source, encoding="utf-8")
         module = importlib.import_module(module_name)
         try:
             migration = module.Migration("0001_test", "testapp")
             analyzer = MigrationAnalyzer(
-                db_vendor="postgresql", check_reverse=check_reverse
+                db_vendor="postgresql", check_reverse=check_reverse, rules=rules
             )
             issues = analyzer.analyze_migration(
                 migration, app_label="testapp", migration_name="0001_test"
@@ -571,7 +573,9 @@ class TestSuppressionBlastRadius:
 
         assert found == []
         assert baseline  # the fixture really did have something to suppress
-        assert {r.rule_id for r in analyzer.suppression_records} == set(baseline)
+        # Suppressed rules are skipped, so the report cannot claim which of
+        # them would have fired: a blanket directive is reported as ``all``.
+        assert [r.rule_id for r in analyzer.suppression_records] == ["all"]
 
     def test_real_scoped_directive_suppresses_only_named_rule(
         self, analyze_migration_source
@@ -608,7 +612,7 @@ class TestSuppressionBlastRadius:
 
         report = format_suppression_report(analyzer.suppression_records)
 
-        assert "Suppressed 1 finding(s)" in report
+        assert "Suppressed 1 check(s)" in report
         assert "SM038" in report
         assert "[migration]" in report
         assert "reviewed by DBA" in report
@@ -654,6 +658,68 @@ class TestSuppressionBlastRadius:
         assert any(rule_id.startswith("RV") for rule_id in baseline)
         assert found == []
         assert any(r.rule_id.startswith("RV") for r in analyzer.suppression_records)
+
+
+class ExplodingRule(BaseRule):
+    """A third-party style rule that raises instead of returning a verdict.
+
+    Rules loaded through the plugin / entry-point path are arbitrary user
+    code, and nothing in the analyzer guards their execution. This stands in
+    for one that is simply broken.
+    """
+
+    rule_id = "SM001"
+    severity = Severity.ERROR
+    description = "Always raises."
+
+    def check(self, operation, migration, **kwargs):
+        """Raise instead of checking the operation."""
+        raise RuntimeError("rule exploded")
+
+    def check_migration(self, migration):
+        """Raise instead of checking the migration."""
+        raise RuntimeError("rule exploded")
+
+
+class TestSuppressedRulesAreNotRun:
+    """A suppressed rule must be skipped, not run and then filtered out.
+
+    Filtering after the fact makes the run depend on the behaviour of rules
+    the author explicitly silenced -- so a broken third-party rule aborts the
+    whole analysis over a migration nobody is even checking.
+    """
+
+    def test_raising_rule_aborts_when_not_suppressed(
+        self, analyze_migration_source
+    ) -> None:
+        """Guard: the rule really is reached when nothing suppresses it."""
+        with pytest.raises(RuntimeError, match="rule exploded"):
+            analyze_migration_source(build_migration(), rules=[ExplodingRule()])
+
+    def test_raising_rule_does_not_abort_suppressed_migration(
+        self, analyze_migration_source
+    ) -> None:
+        """A fully suppressed migration never runs the rule, so it cannot fail."""
+        found, analyzer = analyze_migration_source(
+            build_migration(extra="# safe-migrations: ignore-migration all"),
+            rules=[ExplodingRule()],
+        )
+
+        assert found == []
+        # The skip is still reported: silently skipped must not look checked.
+        assert [r.rule_id for r in analyzer.suppression_records] == ["all"]
+
+    def test_raising_rule_does_not_abort_rule_scoped_suppression(
+        self, analyze_migration_source
+    ) -> None:
+        """Naming the rule is enough; the whole-file ``all`` is not required."""
+        found, analyzer = analyze_migration_source(
+            build_migration(extra="# safe-migrations: ignore-migration SM001"),
+            rules=[ExplodingRule()],
+        )
+
+        assert found == []
+        assert [r.rule_id for r in analyzer.suppression_records] == ["SM001"]
 
 
 class TestSuppressionAnchoring:
