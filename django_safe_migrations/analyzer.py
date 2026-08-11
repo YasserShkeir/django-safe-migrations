@@ -15,8 +15,11 @@ from django_safe_migrations.conf import (
 from django_safe_migrations.rules import get_all_rules
 from django_safe_migrations.rules.base import BaseRule, Issue
 from django_safe_migrations.suppression import (
+    Suppression,
+    SuppressionRecord,
+    find_migration_suppression,
+    find_suppression,
     get_suppressions_for_migration,
-    is_operation_suppressed,
 )
 from django_safe_migrations.utils import (
     get_db_vendor,
@@ -83,6 +86,13 @@ class MigrationAnalyzer:
         self.verbose = verbose
         self.cache = cache
         self.check_reverse = check_reverse
+        # Every check an inline suppression comment silenced during this run.
+        # Reported by the CLI / management command so a clean run can never be
+        # confused with a silently skipped one. ``_suppression_keys`` collapses
+        # the repeats a whole-file directive would otherwise produce (once per
+        # rule per operation).
+        self.suppression_records: list[SuppressionRecord] = []
+        self._suppression_keys: set[tuple[str, str, int, str]] = set()
         # Memoise per-file SHA-256 so each migration file is hashed once per run
         # even though it appears in many migrations' dependency closures.
         self._file_hash_memo: dict[str, str] = {}
@@ -113,6 +123,51 @@ class MigrationAnalyzer:
         # Otherwise, use full configuration (individual + category + per-app)
         return is_rule_enabled_for_app(rule_id, app_label)
 
+    def _record_suppression(
+        self,
+        rule_id: str,
+        suppression: Suppression,
+        file_path: Optional[str],
+        app_label: Optional[str],
+        migration_name: Optional[str],
+    ) -> None:
+        """Record that an inline comment silenced a check.
+
+        The rule is *not* run when it is suppressed, so this records the check
+        that was skipped rather than a confirmed finding. A blanket ``all``
+        directive is recorded once under the label ``all`` instead of once per
+        rule in the suite, which would bury the report in noise.
+
+        Args:
+            rule_id: The rule that was not run.
+            suppression: The directive that silenced it.
+            file_path: The migration file.
+            app_label: The app label.
+            migration_name: The migration name.
+        """
+        record = SuppressionRecord(
+            rule_id=suppression.report_rule_id(rule_id),
+            scope=suppression.scope,
+            line_number=suppression.line_number,
+            reason=suppression.reason,
+            file_path=file_path,
+            app_label=app_label,
+            migration_name=migration_name,
+        )
+        key = record._key()
+        if key in self._suppression_keys:
+            return
+        self._suppression_keys.add(key)
+        logger.debug(
+            "Suppressed %s in %s.%s via %s directive on line %d",
+            record.rule_id,
+            app_label,
+            migration_name,
+            suppression.scope.value,
+            suppression.line_number,
+        )
+        self.suppression_records.append(record)
+
     def analyze_migration(
         self,
         migration: Migration,
@@ -142,13 +197,21 @@ class MigrationAnalyzer:
         if migration_name is None:
             migration_name = getattr(migration, "name", None)
 
+        # Pre-parse suppression comments for efficiency. Done before the cache
+        # lookup so a cache hit cannot hide the suppression report.
+        suppressions = get_suppressions_for_migration(migration)
+
         # Cache lookup: serve unchanged migrations from the cache. The content
         # hash covers this migration's file and its transitive dependencies, so
         # changes to ancestor migrations (which feed before-state resolution)
         # correctly invalidate the entry.
+        #
+        # Migrations carrying suppression comments are never served from (nor
+        # written to) the cache: their issues are only meaningful alongside the
+        # record of what was silenced, and that record is not cached.
         cache_key: Optional[str] = None
         content_hash: Optional[str] = None
-        if self.cache is not None and app_label and migration_name:
+        if self.cache is not None and not suppressions and app_label and migration_name:
             content_hash = self._migration_content_hash(
                 migration, app_label, migration_name, loader
             )
@@ -166,9 +229,6 @@ class MigrationAnalyzer:
             migration_name,
             len(operations),
         )
-
-        # Pre-parse suppression comments for efficiency
-        suppressions = get_suppressions_for_migration(migration)
 
         from django.db import migrations as mig_module
 
@@ -214,6 +274,25 @@ class MigrationAnalyzer:
                 continue
             if not rule.applies_to_django():
                 continue
+
+            # A suppressed rule is not run at all -- its result is discarded by
+            # definition, and running it would let a third-party rule that
+            # raises abort a run over a migration the author already silenced.
+            suppression = (
+                find_migration_suppression(rule.rule_id, suppressions)
+                if suppressions
+                else None
+            )
+            if suppression is not None:
+                self._record_suppression(
+                    rule_id=rule.rule_id,
+                    suppression=suppression,
+                    file_path=file_path,
+                    app_label=app_label,
+                    migration_name=migration_name,
+                )
+                continue
+
             for issue in rule.check_migration(migration):
                 issue.severity = get_rule_severity_for_app(
                     issue.rule_id, issue.severity, app_label
@@ -236,6 +315,8 @@ class MigrationAnalyzer:
                     app_label=app_label,
                     migration_name=migration_name,
                     file_path=file_path,
+                    suppressions=suppressions,
+                    suppression_records=self.suppression_records,
                 )
             )
 
@@ -372,12 +453,29 @@ class MigrationAnalyzer:
             if not rule.applies_to_django():
                 continue
 
-            # Check for inline suppression comments
-            if file_path and operation_line:
-                if is_operation_suppressed(
-                    file_path, operation_line, rule.rule_id, suppressions
-                ):
-                    continue
+            # Inline suppression (migration-scoped or operation-scoped). As in
+            # the migration-level loop above, a suppressed rule is skipped
+            # rather than run-and-filtered, so a rule that raises cannot abort
+            # a run over an operation the author already silenced.
+            suppression = (
+                find_suppression(
+                    rule.rule_id,
+                    suppressions,
+                    file_path=file_path,
+                    operation_line=operation_line,
+                )
+                if suppressions
+                else None
+            )
+            if suppression is not None:
+                self._record_suppression(
+                    rule_id=rule.rule_id,
+                    suppression=suppression,
+                    file_path=file_path,
+                    app_label=app_label,
+                    migration_name=migration_name,
+                )
+                continue
 
             rule_kwargs: dict[str, object] = {"db_vendor": self.db_vendor}
             if is_alter_field:

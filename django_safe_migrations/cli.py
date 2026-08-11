@@ -432,6 +432,16 @@ Documentation: https://django-safe-migrations.readthedocs.io/
                 file=sys.stderr,
             )
 
+    # Report every finding an inline suppression comment silenced. A safety
+    # tool must never let "checked" and "silently skipped" look the same, so
+    # this is emitted on stderr regardless of --format (it would otherwise
+    # corrupt machine-readable stdout).
+    from django_safe_migrations.suppression import format_suppression_report
+
+    suppression_report = format_suppression_report(analyzer.suppression_records)
+    if suppression_report:
+        print(suppression_report, file=sys.stderr)
+
     # Apply baseline filtering
     if args.baseline:
         from django_safe_migrations.baseline import (

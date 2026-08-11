@@ -317,6 +317,77 @@ migrations.RunSQL(
 )
 ```
 
+### Migration-Level Suppression
+
+Use `ignore-migration` when a rule should be suppressed for the whole migration:
+
+```python
+# safe-migrations: ignore-migration SM038 -- schema and data are intentionally coupled
+
+operations = [
+    # safe-migrations: ignore SM001 -- safe because table is empty
+    migrations.AddField(
+        model_name='user',
+        name='email',
+        field=models.CharField(max_length=255),
+    ),
+]
+```
+
+This is useful for migration-level rules such as `SM038`, while keeping other
+rules suppressible per operation. Prefer specific rule IDs over
+`ignore-migration all`.
+
+`ignore all` and `ignore-migration all` mean *all rules*, including the `RV0xx`
+reverse-safety family reported by `--check-reverse`. Individual `RV0xx` rules
+cannot be named in a directive — the syntax only accepts `SM` IDs — so use
+`all` if you need to silence a rollback warning.
+
+### Where a Directive Counts
+
+A directive is honoured only when it is a **real Python comment** whose text
+**starts** with the directive. This matters most for `ignore-migration`, which
+covers the whole file: an accidental match would turn the entire migration into
+a blind spot.
+
+None of the following suppress anything:
+
+```python
+"""Reviewer notes.
+
+We decided NOT to use
+# safe-migrations: ignore-migration all
+because it hides every check in this file.
+"""
+
+# # safe-migrations: ignore-migration all   <- commented out, stays off
+# never write `# safe-migrations: ignore-migration all` in this repo
+
+migrations.RunSQL(sql="UPDATE t SET x = 1 -- # safe-migrations: ignore all")
+```
+
+Migration files are tokenised, so the phrase is ignored inside docstrings and
+string literals. A file that cannot be tokenised (syntax error) degrades to an
+anchored line scan rather than failing the run.
+
+### Suppression Reporting
+
+Every finding a directive silences is reported on **stderr**, one line per
+suppressed rule, so a clean run can never be confused with a silently skipped
+one:
+
+```text
+Suppressed 2 finding(s) via inline comments:
+  myapp/migrations/0007_backfill.py (myapp/0007_backfill):5 SM038 [migration] -- reviewed by DBA
+  myapp/migrations/0007_backfill.py (myapp/0007_backfill):18 SM007 [operation] -- idempotent
+```
+
+stderr is used so the report never corrupts machine-readable stdout
+(`--format=json`, `--format=sarif`, …) while remaining visible in CI logs.
+
+Note that migrations containing suppression comments are never served from the
+`--cache`, so the report is complete on every run.
+
 ### Best Practices
 
 1. **Always include a reason** — Future developers (including yourself) will want to know why:
